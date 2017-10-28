@@ -13,7 +13,7 @@
 #include "drake/common/drake_assert.h"
 #include "drake/common/drake_copyable.h"
 #include "drake/common/find_resource.h"
-#include "drake/examples/kuka_iiwa_arm/pick_and_place/pick_and_place_state_machine.h"
+#include "drake/examples/kuka_iiwa_arm/dev/explore_object/state_machine_system.h"
 #include "drake/examples/kuka_iiwa_arm/pick_and_place/world_state.h"
 #include "drake/lcmt_iiwa_status.hpp"
 #include "drake/lcmt_schunk_wsg_command.hpp"
@@ -24,8 +24,10 @@
 namespace drake {
 namespace examples {
 namespace kuka_iiwa_arm {
-namespace pick_and_place {
+namespace explore_object {
 namespace {
+using manipulation::planner::ConstraintRelaxingIk;
+using pick_and_place::WorldState;
 
 class WorldStateSubscriber {
  public:
@@ -85,11 +87,9 @@ class WorldStateSubscriber {
 };
 
 
-using manipulation::planner::ConstraintRelaxingIk;
-
 // Makes a state machine that drives the iiwa to pick up a block from one table
 // and place it on the other table.
-void RunPickAndPlaceDemo() {
+void RunExploreObjectDiscreteDemo() {
   lcm::LCM lcm;
 
   const std::string iiwa_path = FindResourceOrThrow(
@@ -106,23 +106,47 @@ void RunPickAndPlaceDemo() {
          env_state.get_obj_time() == -1 || env_state.get_wsg_time() == -1) {
   }
 
+  // TODO: Change to ExploreObjectStateMachine, make sure the methods are still
+  // relevant and will work with the planner.
   // Makes a planner.
   const Isometry3<double>& iiwa_base = env_state.get_iiwa_base();
   ConstraintRelaxingIk planner(
       iiwa_path, iiwa_end_effector_name, iiwa_base);
-  PickAndPlaceStateMachine::IiwaPublishCallback iiwa_callback =
+  ExploreObjectStateMachine::IiwaPublishCallback iiwa_callback =
       ([&](const robotlocomotion::robot_plan_t* plan) {
         lcm.publish("COMMITTED_ROBOT_PLAN", plan);
       });
 
-  PickAndPlaceStateMachine::WsgPublishCallback wsg_callback =
+  ExploreObjectStateMachine::WsgPublishCallback wsg_callback =
       ([&](const lcmt_schunk_wsg_command* msg) {
         std::cout << "publishing wsg command" << std::endl;
         lcm.publish("SCHUNK_WSG_COMMAND", msg);
       });
 
   // This needs to match the object model file in iiwa_wsg_simulation.cc
-  const double half_box_height = 0.1;
+  Eigen::Vector3d half_box_height(0, 0, 0.1);
+
+  // TODO(kmuhlrad): all of these locations need to be updated
+  std::vector<Eigen::Vector3d> absolute_grasp_locations;
+  // Eigen::Vector3d(0.86, -0.36, 0.13), 0.09, 0.05, 0.01
+  absolute_grasp_locations.push_back(Eigen::Vector3d(0.80, -0.03, 0.13));
+  absolute_grasp_locations.push_back(Eigen::Vector3d(0.80, -0.03, 0.09));
+  absolute_grasp_locations.push_back(Eigen::Vector3d(0.80, -0.03, 0.05));
+  absolute_grasp_locations.push_back(Eigen::Vector3d(0.80, -0.03, 0.01));
+
+  // Define the transformation to where the object will be sitting, relative to
+  // the robot base.
+  std::vector<Isometry3<double>> relative_grasp_locations;
+  Isometry3<double> relative_grasp_location;
+
+  for (Eigen::Vector3d& absolute_grasp_loc: absolute_grasp_locations) {
+      relative_grasp_location.translation() = absolute_grasp_loc + half_box_height;
+      relative_grasp_location.linear().setIdentity();
+      relative_grasp_location.rotate(Eigen::AngleAxisd(0.25*M_PI, Eigen::Vector3d::UnitZ()));
+      relative_grasp_locations.push_back(relative_grasp_location);
+  }
+
+  /*
   std::vector<Isometry3<double>> place_locations;
   Isometry3<double> place_location;
   // TODO(sam.creasey) fix these
@@ -134,24 +158,27 @@ void RunPickAndPlaceDemo() {
   place_location.translation() = Vector3<double>(0.8, 0, half_box_height);
   place_location.linear().setIdentity();
   place_locations.push_back(place_location);
+  */
 
-  PickAndPlaceStateMachine machine(place_locations, true);
+  ExploreObjectStateMachine machine(relative_grasp_locations, true);
 
   // lcm handle loop
   while (true) {
     // Handles all messages.
-    while (lcm.handleTimeout(10) == 0) {}
+    while (lcm.handleTimeout(10) == 0) {
+      // drake::log()->info("Timing out");
+    }
     machine.Update(env_state, iiwa_callback, wsg_callback, &planner);
   }
 }
 
 }  // namespace
-}  // namespace pick_and_place
+}  // namespace explore_object
 }  // namespace kuka_iiwa_arm
 }  // namespace examples
 }  // namespace drake
 
 int main() {
-  drake::examples::kuka_iiwa_arm::pick_and_place::RunPickAndPlaceDemo();
+  drake::examples::kuka_iiwa_arm::explore_object::RunExploreObjectDiscreteDemo();
   return 0;
 }

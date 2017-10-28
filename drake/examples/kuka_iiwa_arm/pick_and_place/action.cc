@@ -93,6 +93,9 @@ void WsgAction::CloseGripper(const WorldState& est_state,
 bool WsgAction::ActionFinished(const WorldState& est_state) const {
   if (!ActionStarted()) return false;
 
+  // drake::log()->info("velocity: {}, passed time: {}",
+  //     std::abs(est_state.get_wsg_v()),
+  //     get_time_since_action_start(est_state.get_wsg_time()));
   const double max_finished_velocity = 1e-2;
   if (std::abs(est_state.get_wsg_v()) < max_finished_velocity &&
       (get_time_since_action_start(est_state.get_wsg_time()) > 0.5))

@@ -88,6 +88,8 @@ void WorldState::HandleWsgStatus(const lcmt_schunk_wsg_status& wsg_msg) {
   wsg_v_ = (wsg_msg.actual_position_mm / 1000. - wsg_q_) / dt;
   wsg_q_ = wsg_msg.actual_position_mm / 1000.;
   wsg_force_ = wsg_msg.actual_force;
+
+  //drake::log()->info("Wsg status with velocity {}, position {}, and force {}", wsg_v_, wsg_q_, wsg_force_);
 }
 
 void WorldState::HandleObjectStatus(const bot_core::robot_state_t& obj_msg) {

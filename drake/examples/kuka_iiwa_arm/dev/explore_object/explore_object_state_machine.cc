@@ -1,4 +1,4 @@
-#include "drake/examples/kuka_iiwa_arm/pick_and_place/pick_and_place_state_machine.h"
+#include "drake/examples/kuka_iiwa_arm/dev/explore_object/explore_object_state_machine.h"
 
 #include "drake/common/drake_assert.h"
 #include "drake/common/text_logging.h"
@@ -8,20 +8,21 @@
 namespace drake {
 namespace examples {
 namespace kuka_iiwa_arm {
-namespace pick_and_place {
+namespace explore_object {
 namespace {
 
 using manipulation::planner::ConstraintRelaxingIk;
+using pick_and_place::WorldState;
 
-// Position the gripper 30cm above the object before grasp.
-const double kPreGraspHeightOffset = 0.3;
+// Position the gripper 30cm above the object before initial grasp.
+const double kPreGraspHeightOffset = 0.2;
 
 // Computes the desired end effector pose in the world frame given the object
 // pose in the world frame.
 Isometry3<double> ComputeGraspPose(const Isometry3<double>& X_WObj) {
   // Sets desired end effector location to be 12cm behind the object,
   // with the same orientation relative to the object frame. This number
-  // dependents on the length of the finger and how the gripper is attached.
+  // depends on the length of the finger and how the gripper is attached.
   const double kEndEffectorToMidFingerDepth = 0.12;
   Isometry3<double> X_ObjEndEffector_desired;
   X_ObjEndEffector_desired.translation() =
@@ -93,11 +94,10 @@ bool PlanStraightLineMotion(const VectorX<double>& q_current,
 
 }  // namespace
 
-
-PickAndPlaceStateMachine::PickAndPlaceStateMachine(
-    const std::vector<Isometry3<double>>& place_locations, bool loop)
-    : place_locations_(place_locations),
-      next_place_location_(0),
+ExploreObjectStateMachine::ExploreObjectStateMachine(
+    const std::vector<Isometry3<double>>& grasp_locations, bool loop)
+    : grasp_locations_(grasp_locations),
+      next_grasp_location_(0),
       loop_(loop),
       state_(kOpenGripper),
       // Position and rotation tolerances.  These were hand-tuned by
@@ -107,12 +107,12 @@ PickAndPlaceStateMachine::PickAndPlaceStateMachine(
       tight_rot_tol_(0.05),
       loose_pos_tol_(0.05, 0.05, 0.05),
       loose_rot_tol_(0.5) {
-  DRAKE_DEMAND(!place_locations.empty());
+  DRAKE_DEMAND(!grasp_locations.empty());
 }
 
-PickAndPlaceStateMachine::~PickAndPlaceStateMachine() {}
+ExploreObjectStateMachine::~ExploreObjectStateMachine() {}
 
-void PickAndPlaceStateMachine::Update(
+void ExploreObjectStateMachine::Update(
     const WorldState& env_state,
     const IiwaPublishCallback& iiwa_callback,
     const WsgPublishCallback& wsg_callback,
@@ -125,7 +125,6 @@ void PickAndPlaceStateMachine::Update(
   const RigidBodyTree<double>& iiwa = planner->get_robot();
 
   switch (state_) {
-    // Opens the gripper.
     case kOpenGripper: {
       if (!wsg_act_.ActionStarted()) {
         lcmt_schunk_wsg_command msg;
@@ -137,19 +136,22 @@ void PickAndPlaceStateMachine::Update(
       }
 
       if (wsg_act_.ActionFinished(env_state)) {
-        state_ = kApproachPickPregrasp;
+        state_ = kApproachPregrasp;
         wsg_act_.Reset();
       }
       break;
     }
 
-    case kApproachPickPregrasp: {
-      // Approaches kPreGraspHeightOffset above the center of the object.
+    case kApproachPregrasp: {
+      // Uses 2 seconds to move to right about the target place location.
       if (!iiwa_move_.ActionStarted()) {
-        // Computes the desired end effector pose in the world frame to be
-        // kPreGraspHeightOffset above the object.
-        X_Wend_effector_0_ = env_state.get_iiwa_end_effector_pose();
-        X_Wend_effector_1_ = ComputeGraspPose(env_state.get_object_pose());
+        X_IIWAobj_desired_ = grasp_locations_[next_grasp_location_];
+
+        const Isometry3<double>& iiwa_base = env_state.get_iiwa_base();
+        X_Wobj_desired_ = iiwa_base * X_IIWAobj_desired_;
+
+        X_Wend_effector_0_ = X_Wend_effector_1_;
+        X_Wend_effector_1_ = ComputeGraspPose(X_Wobj_desired_);
         X_Wend_effector_1_.translation()[2] += kPreGraspHeightOffset;
 
         // 2 seconds, no via points.
@@ -163,22 +165,23 @@ void PickAndPlaceStateMachine::Update(
         iiwa_move_.MoveJoints(env_state, iiwa, times, ik_res.q_sol, &plan);
         iiwa_callback(&plan);
 
-        drake::log()->info("kApproachPickPregrasp at {}",
+        drake::log()->info("kApproachPregrasp at {}",
                            env_state.get_iiwa_time());
       }
 
       if (iiwa_move_.ActionFinished(env_state)) {
-        state_ = kApproachPick;
+        state_ = kApproachGrasp;
         iiwa_move_.Reset();
      }
       break;
     }
 
-    case kApproachPick: {
+    case kApproachGrasp: {
       // Moves gripper straight down.
       if (!iiwa_move_.ActionStarted()) {
+
         X_Wend_effector_0_ = X_Wend_effector_1_;
-        X_Wend_effector_1_ = ComputeGraspPose(env_state.get_object_pose());
+        X_Wend_effector_1_ = ComputeGraspPose(X_Wobj_desired_);
 
         // 2 seconds, 3 via points. More via points to ensure the end
         // effector moves in more or less a straight line.
@@ -192,7 +195,7 @@ void PickAndPlaceStateMachine::Update(
         iiwa_move_.MoveJoints(env_state, iiwa, times, ik_res.q_sol, &plan);
         iiwa_callback(&plan);
 
-        drake::log()->info("kApproachPick at {}",
+        drake::log()->info("kApproachGrasp at {}",
                            env_state.get_iiwa_time());
       }
 
@@ -214,154 +217,22 @@ void PickAndPlaceStateMachine::Update(
         drake::log()->info("kGrasp at {}", env_state.get_iiwa_time());
       }
 
+      //drake::log()->info("Do we actually get here?");
       if (wsg_act_.ActionFinished(env_state)) {
-        state_ = kLiftFromPick;
-        wsg_act_.Reset();
-      }
-
-      break;
-    }
-
-    case kLiftFromPick: {
-      // Lifts the object straight up.
-      if (!iiwa_move_.ActionStarted()) {
-        X_Wend_effector_0_ = X_Wend_effector_1_;
-        X_Wend_effector_1_.translation()[2] += kPreGraspHeightOffset;
-
-        // 2 seconds, 3 via points.
-        bool res = PlanStraightLineMotion(
-            env_state.get_iiwa_q(), 3, 2,
-            X_Wend_effector_0_, X_Wend_effector_1_,
-            tight_pos_tol_, tight_rot_tol_, planner, &ik_res, &times);
-        DRAKE_DEMAND(res);
-
-        robotlocomotion::robot_plan_t plan{};
-        iiwa_move_.MoveJoints(env_state, iiwa, times, ik_res.q_sol, &plan);
-        iiwa_callback(&plan);
-
-        drake::log()->info("kLiftFromPick at {}", env_state.get_iiwa_time());
-      }
-
-      if (iiwa_move_.ActionFinished(env_state)) {
-        state_ = kApproachPlacePregrasp;
-        iiwa_move_.Reset();
-      }
-
-      break;
-    }
-
-    case kApproachPlacePregrasp: {
-      // Uses 2 seconds to move to right about the target place location.
-      if (!iiwa_move_.ActionStarted()) {
-        X_IIWAobj_desired_ = place_locations_[next_place_location_];
-        const Isometry3<double>& iiwa_base = env_state.get_iiwa_base();
-        X_Wobj_desired_ = iiwa_base * X_IIWAobj_desired_;
-
-        X_Wend_effector_0_ = X_Wend_effector_1_;
-        X_Wend_effector_1_ = ComputeGraspPose(X_Wobj_desired_);
-        X_Wend_effector_1_.translation()[2] += kPreGraspHeightOffset;
-
-        // 2 seconds, no via points.
-        bool res = PlanStraightLineMotion(
-            env_state.get_iiwa_q(), 0, 2,
-            X_Wend_effector_0_, X_Wend_effector_1_,
-            loose_pos_tol_, loose_rot_tol_, planner, &ik_res, &times);
-        DRAKE_DEMAND(res);
-
-        robotlocomotion::robot_plan_t plan{};
-        iiwa_move_.MoveJoints(env_state, iiwa, times, ik_res.q_sol, &plan);
-        iiwa_callback(&plan);
-
-        drake::log()->info("kApproachPlacePregrasp at {}",
-                           env_state.get_iiwa_time());
-      }
-
-      if (iiwa_move_.ActionFinished(env_state)) {
-        state_ = kApproachPlace;
-        iiwa_move_.Reset();
-      }
-      break;
-    }
-
-    case kApproachPlace: {
-      // Moves straight down.
-      if (!iiwa_move_.ActionStarted()) {
-        // Computes the desired end effector pose in the world frame.
-        X_Wend_effector_0_ = X_Wend_effector_1_;
-        X_Wend_effector_1_ = ComputeGraspPose(X_Wobj_desired_);
-
-        // 2 seconds, 3 via points.
-        bool res = PlanStraightLineMotion(
-            env_state.get_iiwa_q(), 3, 2,
-            X_Wend_effector_0_, X_Wend_effector_1_,
-            tight_pos_tol_, tight_rot_tol_, planner, &ik_res, &times);
-        DRAKE_DEMAND(res);
-
-        robotlocomotion::robot_plan_t plan{};
-        iiwa_move_.MoveJoints(env_state, iiwa, times, ik_res.q_sol, &plan);
-        iiwa_callback(&plan);
-
-        drake::log()->info("kApproachPlace at {}", env_state.get_iiwa_time());
-      }
-
-      if (iiwa_move_.ActionFinished(env_state)) {
-        state_ = kPlace;
-        iiwa_callback(&stopped_plan);
-        iiwa_move_.Reset();
-      }
-      break;
-    }
-
-    case kPlace: {
-      // Releases the object.
-      if (!wsg_act_.ActionStarted()) {
-        lcmt_schunk_wsg_command msg;
-        wsg_act_.OpenGripper(env_state, &msg);
-        wsg_callback(&msg);
-
-        drake::log()->info("kPlace at {}", env_state.get_iiwa_time());
-      }
-
-      if (wsg_act_.ActionFinished(env_state)) {
-        state_ = kLiftFromPlace;
-        wsg_act_.Reset();
-      }
-      break;
-    }
-
-    case kLiftFromPlace: {
-      // Moves straight up.
-      if (!iiwa_move_.ActionStarted()) {
-        X_Wend_effector_0_ = X_Wend_effector_1_;
-        X_Wend_effector_1_.translation()[2] += kPreGraspHeightOffset;
-
-        // 2 seconds, 5 via points.
-        bool res = PlanStraightLineMotion(
-            env_state.get_iiwa_q(), 5, 2,
-            X_Wend_effector_0_, X_Wend_effector_1_,
-            tight_pos_tol_, tight_rot_tol_, planner, &ik_res, &times);
-        DRAKE_DEMAND(res);
-
-        robotlocomotion::robot_plan_t plan{};
-        iiwa_move_.MoveJoints(env_state, iiwa, times, ik_res.q_sol, &plan);
-        iiwa_callback(&plan);
-
-        drake::log()->info("kLiftFromPlace at {}", env_state.get_iiwa_time());
-      }
-
-      if (iiwa_move_.ActionFinished(env_state)) {
-        next_place_location_++;
-        if (next_place_location_ == static_cast<int>(place_locations_.size()) &&
+        next_grasp_location_++;
+        if (next_grasp_location_ == static_cast<int>(grasp_locations_.size()) &&
             !loop_) {
           state_ = kDone;
           iiwa_callback(&stopped_plan);
           drake::log()->info("kDone at {}", env_state.get_iiwa_time());
         } else {
-          next_place_location_ %= place_locations_.size();
+          next_grasp_location_ %= grasp_locations_.size();
           state_ = kOpenGripper;
         }
-        iiwa_move_.Reset();
+        wsg_act_.Reset();
       }
+
+      //drake::log()->info("At end of kGrasp");
       break;
     }
 
@@ -371,7 +242,7 @@ void PickAndPlaceStateMachine::Update(
   }
 }
 
-}  // namespace pick_and_place
+}  // namespace explore_object
 }  // namespace kuka_iiwa_arm
 }  // namespace examples
 }  // namespace drake

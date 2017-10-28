@@ -117,6 +117,7 @@ class RobotPlanRunner {
       return;
     } else if (plan->num_states < 2) {
       std::cout << "Discarding plan, Not enough knot points." << std::endl;
+      std::cout << "num knot points: " << plan->num_states << std::endl;
       return;
     }
 
