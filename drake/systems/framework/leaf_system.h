@@ -10,7 +10,7 @@
 #include <utility>
 #include <vector>
 
-#include "drake/common/autodiff_overloads.h"
+#include "drake/common/autodiff.h"
 #include "drake/common/drake_assert.h"
 #include "drake/common/drake_copyable.h"
 #include "drake/common/drake_deprecated.h"
@@ -34,6 +34,45 @@
 
 namespace drake {
 namespace systems {
+
+/** @cond */
+// Private helper functions for LeafSystem.
+namespace leaf_system_detail {
+
+// Returns the next sample time for the given @p attribute.
+template <typename T>
+static T GetNextSampleTime(
+    const typename Event<T>::PeriodicAttribute& attribute,
+    const T& current_time_sec) {
+  const double period = attribute.period_sec;
+  DRAKE_ASSERT(period > 0);
+  const double offset = attribute.offset_sec;
+  DRAKE_ASSERT(offset >= 0);
+
+  // If the first sample time hasn't arrived yet, then that is the next
+  // sample time.
+  if (current_time_sec < offset) {
+    return offset;
+  }
+
+  // NOLINTNEXTLINE(build/namespaces): Needed for ADL of floor and ceil.
+  using namespace std;
+
+  // Compute the index in the sequence of samples for the next time to sample,
+  // which should be greater than the present time.
+  const T offset_time = current_time_sec - offset;
+  const int64_t next_k = static_cast<int64_t>(ceil(offset_time / period));
+  T next_t = offset + next_k * period;
+  if (next_t <= current_time_sec) {
+    next_t = offset + (next_k + 1) * period;
+  }
+  DRAKE_ASSERT(next_t > current_time_sec);
+  return next_t;
+}
+
+}  // namespace leaf_system_detail
+/** @endcond */
+
 
 /// A superclass template that extends System with some convenience utilities
 /// that are not applicable to Diagrams.
@@ -108,8 +147,8 @@ class LeafSystem : public System<T> {
     // -- The numeric parameters must all be valid BasicVectors.
     const int num_numeric_parameters = context->num_numeric_parameters();
     for (int i = 0; i < num_numeric_parameters; ++i) {
-      const BasicVector<T>* const group = context->get_numeric_parameter(i);
-      detail::CheckBasicVectorInvariants(group);
+      const BasicVector<T>& group = context->get_numeric_parameter(i);
+      detail::CheckBasicVectorInvariants(&group);
     }
     // Note that the outputs are not part of the Context, but instead are
     // checked by LeafSystemOutput::add_port.
@@ -117,19 +156,26 @@ class LeafSystem : public System<T> {
     return std::move(context);
   }
 
-  /// Default implementation: sets all continuous and discrete state variables
-  /// to zero.  It makes no attempt to set abstract state values. Overrides
-  /// must not change the number of state variables.
+  /// Default implementation: sets all continuous state to the model vector
+  /// given in DeclareContinousState (or zero if no model vector was given) and
+  /// discrete states to zero.  This method makes no attempt to set abstract
+  /// state values.  Overrides must not change the number of state variables.
+  // TODO(sherm/russt): Initialize the discrete state from the model vector
+  // pending resolution of #7058.
   void SetDefaultState(const Context<T>& context,
                        State<T>* state) const override {
     unused(context);
     DRAKE_DEMAND(state != nullptr);
     ContinuousState<T>* xc = state->get_mutable_continuous_state();
-    xc->SetFromVector(VectorX<T>::Zero(xc->size()));
+    if (model_continuous_state_vector_ != nullptr) {
+      xc->SetFromVector(model_continuous_state_vector_->get_value());
+    } else {
+      xc->SetFromVector(VectorX<T>::Zero(xc->size()));
+    }
     DiscreteValues<T>* xd = state->get_mutable_discrete_state();
     for (int i = 0; i < xd->num_groups(); i++) {
-      BasicVector<T>* s = xd->get_mutable_vector(i);
-      s->SetFromVector(VectorX<T>::Zero(s->size()));
+      BasicVector<T>& s = xd->get_mutable_vector(i);
+      s.SetFromVector(VectorX<T>::Zero(s.size()));
     }
   }
 
@@ -137,44 +183,18 @@ class LeafSystem : public System<T> {
   /// given to DeclareNumericParameter, or else if no model was provided sets
   /// the numeric parameter to one.  It makes no attempt to set abstract
   /// parameter values.  Overrides must not change the number of parameters.
-  virtual void SetDefaultParameters(const LeafContext<T>& context,
-                                    Parameters<T>* parameters) const {
+  void SetDefaultParameters(const Context<T>& context,
+                            Parameters<T>* parameters) const override {
     unused(context);
     for (int i = 0; i < parameters->num_numeric_parameters(); i++) {
-      BasicVector<T>* p = parameters->get_mutable_numeric_parameter(i);
+      BasicVector<T>& p = parameters->get_mutable_numeric_parameter(i);
       auto model_vector = model_numeric_parameters_.CloneVectorModel<T>(i);
       if (model_vector != nullptr) {
-        p->SetFrom(*model_vector);
+        p.SetFrom(*model_vector);
       } else {
-        p->SetFromVector(VectorX<T>::Constant(p->size(), 1.0));
+        p.SetFromVector(VectorX<T>::Constant(p.size(), 1.0));
       }
     }
-  }
-
-  // Sets Context fields to their default values.
-  void SetDefaults(Context<T>* context) const final {
-    systems::LeafContext<T>* leaf_context =
-        dynamic_cast<systems::LeafContext<T>*>(context);
-    DRAKE_DEMAND(leaf_context != nullptr);
-
-    // Set the default state, checking that the number of state variables does
-    // not change.
-    const int n_xc = context->get_continuous_state()->size();
-    const int n_xd = context->get_num_discrete_state_groups();
-    const int n_xa = context->get_num_abstract_state_groups();
-
-    SetDefaultState(*context, context->get_mutable_state());
-
-    DRAKE_DEMAND(n_xc == context->get_continuous_state()->size());
-    DRAKE_DEMAND(n_xd == context->get_num_discrete_state_groups());
-    DRAKE_DEMAND(n_xa == context->get_num_abstract_state_groups());
-
-    // Set the default parameters, checking that the number of parameters does
-    // not change.
-    const int num_params = leaf_context->num_numeric_parameters();
-    SetDefaultParameters(*leaf_context,
-                         &leaf_context->get_mutable_parameters());
-    DRAKE_DEMAND(num_params == leaf_context->num_numeric_parameters());
   }
 
   std::unique_ptr<SystemOutput<T>> AllocateOutput(
@@ -242,9 +262,22 @@ class LeafSystem : public System<T> {
 
  protected:
   /// Default constructor that declares no inputs, outputs, state, parameters,
-  /// events, nor scalar-type conversion support (i.e., AutoDiff, etc.).  To
-  /// enable AutoDiff support, use the constructor that takes a SystemTypeTag.
-  LeafSystem() {
+  /// events, nor scalar-type conversion support (AutoDiff, etc.).  To enable
+  /// AutoDiff support, use the SystemScalarConverter-based constructor.
+  LeafSystem() : LeafSystem(SystemScalarConverter{}) {}
+
+  /// Constructor that declares no inputs, outputs, state, parameters, or
+  /// events, but allows subclasses to declare scalar-type conversion support
+  /// (AutoDiff, etc.).
+  ///
+  /// The scalar-type conversion support will use @p converter.
+  /// To enable scalar-type conversion support, pass a `SystemTypeTag<S>{}`
+  /// where `S` must be the exact class of `this` being constructed.
+  ///
+  /// See @ref system_scalar_conversion for detailed background and examples
+  /// related to scalar-type conversion support.
+  explicit LeafSystem(SystemScalarConverter converter)
+      : System<T>(std::move(converter)) {
     this->set_forced_publish_events(
         LeafEventCollection<PublishEvent<T>>::MakeForcedEventCollection());
     this->set_forced_discrete_update_events(
@@ -253,29 +286,6 @@ class LeafSystem : public System<T> {
     this->set_forced_unrestricted_update_events(
         LeafEventCollection<
             UnrestrictedUpdateEvent<T>>::MakeForcedEventCollection());
-  }
-
-  /// Constructor that declares no inputs, outputs, state, parameters, events,
-  /// but *does* declare scalar-type conversion support (i.e., AutoDiff, etc.).
-  ///
-  /// The scalar-type conversion support will use `S` as the system type to
-  /// construct when changing the scalar type.  Systems may specialize their
-  /// scalar_conversion::Traits<S> to govern the supported scalar types; by
-  /// default, both AutoDiff and symbolic types are enabled.
-  ///
-  /// @tparam S must be the most-derived concrete System subclass of `this`.
-  template <template <typename> class S>
-  explicit LeafSystem(SystemTypeTag<S>) : LeafSystem() {
-    system_scalar_converter_ = SystemScalarConverter(SystemTypeTag<S>{});
-  }
-
-  System<AutoDiffXd>* DoToAutoDiffXd() const override {
-    return system_scalar_converter_.Convert<AutoDiffXd, T>(*this).release();
-  }
-
-  System<symbolic::Expression>* DoToSymbolic() const override {
-    return system_scalar_converter_.Convert<symbolic::Expression, T>(*this).
-        release();
   }
 
   /// Provides a new instance of the leaf context for this system. Derived
@@ -503,12 +513,20 @@ class LeafSystem : public System<T> {
   /// the best way to declare LeafSystem numeric parameters.  LeafSystem's
   /// default implementation of AllocateParameters uses model_vector.Clone(),
   /// and the default implementation of SetDefaultParameters() will reset
-  /// parameters to their model vectors.  Returns the index of the new
-  /// parameter.
+  /// parameters to their model vectors.  If the @p model_vector declares any
+  /// VectorBase::CalcInequalityConstraint() constraints, they will be
+  /// re-declared as inequality constraints on this system (see
+  /// DeclareInequalityConstraint()).  Returns the index of the new parameter.
   int DeclareNumericParameter(const BasicVector<T>& model_vector) {
-    const int next_index = model_numeric_parameters_.size();
-    model_numeric_parameters_.AddVectorModel(next_index, model_vector.Clone());
-    return next_index;
+    const int index = model_numeric_parameters_.size();
+    model_numeric_parameters_.AddVectorModel(index, model_vector.Clone());
+    MaybeDeclareVectorBaseInequalityConstraint(
+        "parameter " + std::to_string(index), model_vector,
+        [index](const Context<T>& context) -> const VectorBase<T>& {
+          const BasicVector<T>& result = context.get_numeric_parameter(index);
+          return result;
+        });
+    return index;
   }
 
   /// Extracts the numeric parameters of type U from the @p context at @p index.
@@ -521,7 +539,7 @@ class LeafSystem : public System<T> {
     const auto& leaf_context =
         dynamic_cast<const systems::LeafContext<T>&>(context);
     const auto* const params =
-        dynamic_cast<const U<T>*>(leaf_context.get_numeric_parameter(index));
+        dynamic_cast<const U<T>*>(&leaf_context.get_numeric_parameter(index));
     DRAKE_ASSERT(params != nullptr);
     return *params;
   }
@@ -530,15 +548,15 @@ class LeafSystem : public System<T> {
   /// Asserts if the context is not a LeafContext, or if it does not have a
   /// vector-valued parameter of type U at @p index.
   template <template <typename> class U = BasicVector>
-  U<T>* GetMutableNumericParameter(Context<T>* context, int index) const {
+  U<T>& GetMutableNumericParameter(Context<T>* context, int index) const {
     static_assert(std::is_base_of<BasicVector<T>, U<T>>::value,
                   "U must be a subclass of BasicVector.");
     auto* leaf_context = dynamic_cast<systems::LeafContext<T>*>(context);
     DRAKE_ASSERT(leaf_context != nullptr);
-    auto* params =
-        dynamic_cast<U<T>*>(leaf_context->get_mutable_numeric_parameter(index));
+    auto* const params = dynamic_cast<U<T>*>(
+        &leaf_context->get_mutable_numeric_parameter(index));
     DRAKE_ASSERT(params != nullptr);
-    return params;
+    return *params;
   }
 
   /// Declares that this System has a simple, fixed-period event specified with
@@ -641,7 +659,8 @@ class LeafSystem : public System<T> {
   /// is overridden.
   void DeclareContinuousState(int num_q, int num_v, int num_z) {
     const int n = num_q + num_v + num_z;
-    DeclareContinuousState(BasicVector<T>(n), num_q, num_v, num_z);
+    DeclareContinuousState(BasicVector<T>(VectorX<T>::Zero(n)), num_q, num_v,
+                           num_z);
   }
 
   /// Declares that this System should reserve continuous state with
@@ -658,7 +677,10 @@ class LeafSystem : public System<T> {
   /// generalized positions, @p num_v generalized velocities, and @p num_z
   /// miscellaneous state variables, stored in a vector Cloned from
   /// @p model_vector. Aborts if @p model_vector has the wrong size. Has no
-  /// effect if AllocateContinuousState is overridden.
+  /// effect if AllocateContinuousState is overridden. If the @p model_vector
+  /// declares any VectorBase::CalcInequalityConstraint() constraints, they
+  /// will be re-declared as inequality constraints on this system (see
+  /// DeclareInequalityConstraint()).
   void DeclareContinuousState(const BasicVector<T>& model_vector, int num_q,
                               int num_v, int num_z) {
     DRAKE_DEMAND(model_vector.size() == num_q + num_v + num_z);
@@ -666,6 +688,13 @@ class LeafSystem : public System<T> {
     num_generalized_positions_ = num_q;
     num_generalized_velocities_ = num_v;
     num_misc_continuous_states_ = num_z;
+    MaybeDeclareVectorBaseInequalityConstraint(
+        "continuous state", model_vector,
+        [](const Context<T>& context) -> const VectorBase<T>& {
+          const ContinuousState<T>* state = context.get_continuous_state();
+          DRAKE_DEMAND(state != nullptr);
+          return state->get_vector();
+        });
   }
 
   /// Declares that this System should reserve continuous state with @p num_q
@@ -707,13 +736,26 @@ class LeafSystem : public System<T> {
   /// This is the best way to declare LeafSystem input ports that require
   /// subclasses of BasicVector.  The port's size will be model_vector.size(),
   /// and LeafSystem's default implementation of DoAllocateInputVector will be
-  /// model_vector.Clone().
+  /// model_vector.Clone(). If the port is intended to model a random noise or
+  /// disturbance input, @p random_type can (optionally) be used to label it
+  /// as such.  If the @p model_vector declares any
+  /// VectorBase::CalcInequalityConstraint() constraints, they will be
+  /// re-declared as inequality constraints on this system (see
+  /// DeclareInequalityConstraint()).
   const InputPortDescriptor<T>& DeclareVectorInputPort(
-      const BasicVector<T>& model_vector) {
+      const BasicVector<T>& model_vector,
+      optional<RandomDistribution> random_type = nullopt) {
     const int size = model_vector.size();
-    const int next_index = this->get_num_input_ports();
-    model_input_values_.AddVectorModel(next_index, model_vector.Clone());
-    return this->DeclareInputPort(kVectorValued, size);
+    const int index = this->get_num_input_ports();
+    model_input_values_.AddVectorModel(index, model_vector.Clone());
+    MaybeDeclareVectorBaseInequalityConstraint(
+        "input " + std::to_string(index), model_vector,
+        [this, index](const Context<T>& context) -> const VectorBase<T>& {
+          const BasicVector<T>* input = this->EvalVectorInput(context, index);
+          DRAKE_DEMAND(input != nullptr);
+          return *input;
+        });
+    return this->DeclareInputPort(kVectorValued, size, random_type);
   }
 
   // Avoid shadowing out the no-arg DeclareAbstractInputPort().
@@ -797,6 +839,19 @@ class LeafSystem : public System<T> {
           auto typed_result = dynamic_cast<BasicVectorSubtype*>(result);
           DRAKE_DEMAND(typed_result != nullptr);
           (this_ptr->*calc)(context, typed_result);
+        });
+    MaybeDeclareVectorBaseInequalityConstraint(
+        "output " + std::to_string(int{port.get_index()}), model_vector,
+        [&port, storage = std::shared_ptr<AbstractValue>{}](
+            const Context<T>& context) mutable -> const VectorBase<T>& {
+          // Because we must return a VectorBase by const reference, our lambda
+          // object needs a member field to maintain storage for our result.
+          // We must use a shared_ptr not because we share storage, but because
+          // our lambda must be copyable.  This will go away once Eval works.
+          storage = port.Allocate(context);
+          // TODO(jwnimmer-tri) We should use port.Eval(), once it works.
+          port.Calc(context, storage.get());
+          return storage->GetValue<BasicVector<T>>();
         });
     return port;
   }
@@ -1017,7 +1072,7 @@ class LeafSystem : public System<T> {
       typename SystemConstraint<T>::CalcCallback calc, int count,
       const std::string& description) {
     return this->AddConstraint(std::make_unique<SystemConstraint<T>>(
-        calc, count, true, description));
+        calc, count, SystemConstraintType::kEquality, description));
   }
 
   /// Declares a system constraint of the form
@@ -1067,7 +1122,7 @@ class LeafSystem : public System<T> {
       typename SystemConstraint<T>::CalcCallback calc, int count,
       const std::string& description) {
     return this->AddConstraint(std::make_unique<SystemConstraint<T>>(
-        calc, count, false, description));
+        calc, count, SystemConstraintType::kInequality, description));
   }
 
   /// Derived-class event handler for all simultaneous publish events
@@ -1163,6 +1218,16 @@ class LeafSystem : public System<T> {
   }
 
  private:
+  std::map<typename Event<T>::PeriodicAttribute, std::vector<const Event<T>*>,
+      PeriodicAttributeComparator<T>> DoGetPeriodicEvents() const override {
+    std::map<typename Event<T>::PeriodicAttribute, std::vector<const Event<T>*>,
+        PeriodicAttributeComparator<T>> periodic_events_map;
+    for (const auto& i : periodic_events_) {
+      periodic_events_map[i.first].push_back(i.second.get());
+    }
+    return periodic_events_map;
+  }
+
   // Calls DoPublish.
   // Assumes @param events is an instance of LeafEventCollection, throws
   // std::bad_cast otherwise.
@@ -1257,7 +1322,8 @@ class LeafSystem : public System<T> {
       const typename Event<T1>::PeriodicAttribute& attribute =
           event_pair.first;
       const Event<T>* const event = event_pair.second.get();
-      T1 t = GetNextSampleTime(attribute, context.get_time());
+      const T1 t = leaf_system_detail::GetNextSampleTime(
+          attribute, context.get_time());
       if (t < min_time) {
         min_time = t;
         next_events = {event};
@@ -1272,36 +1338,6 @@ class LeafSystem : public System<T> {
     for (const Event<T1>* event : next_events) {
       event->add_to_composite(events);
     }
-  }
-
-  // Returns the next sample time for the given @p attribute.
-  static T GetNextSampleTime(
-      const typename Event<T>::PeriodicAttribute& attribute,
-      const T& current_time_sec) {
-    const double period = attribute.period_sec;
-    DRAKE_ASSERT(period > 0);
-    const double offset = attribute.offset_sec;
-    DRAKE_ASSERT(offset >= 0);
-
-    // If the first sample time hasn't arrived yet, then that is the next
-    // sample time.
-    if (current_time_sec < offset) {
-      return offset;
-    }
-
-    // NOLINTNEXTLINE(build/namespaces): Needed for ADL of floor and ceil.
-    using namespace std;
-
-    // Compute the index in the sequence of samples for the next time to sample,
-    // which should be greater than the present time.
-    const T offset_time = current_time_sec - offset;
-    const int64_t next_k = static_cast<int64_t>(ceil(offset_time / period));
-    T next_t = offset + next_k * period;
-    if (next_t <= current_time_sec) {
-      next_t = offset + (next_k + 1) * period;
-    }
-    DRAKE_ASSERT(next_t > current_time_sec);
-    return next_t;
   }
 
   // Returns a SystemSymbolicInspector for this system, or nullptr if a
@@ -1360,6 +1396,31 @@ class LeafSystem : public System<T> {
     };
   }
 
+  // If @p model_vector's CalcInequalityConstraint provides any constraints,
+  // then declares inequality constraints on `this` using a calc function that
+  // obtains a VectorBase from a Context using @p get_vector_from_context and
+  // then delegates to the VectorBase::CalcInequalityConstraint.  Note that the
+  // model vector is only used to determine how many constraints will appear;
+  // it is not part of the ongoing constraint computations.
+  void MaybeDeclareVectorBaseInequalityConstraint(
+      const std::string& kind,
+      const VectorBase<T>& model_vector,
+      const std::function<const VectorBase<T>&(const Context<T>&)>&
+        get_vector_from_context) {
+    VectorX<T> dummy_value;
+    model_vector.CalcInequalityConstraint(&dummy_value);
+    const int count = dummy_value.size();
+    if (count == 0) {
+      return;
+    }
+    this->DeclareInequalityConstraint(
+        [get_vector_from_context](const Context<T>& con, VectorX<T>* value) {
+          get_vector_from_context(con).CalcInequalityConstraint(value);
+        },
+        count,
+        kind + " of type " + NiceTypeName::Get(model_vector));
+  }
+
   // Periodic Update or Publish events registered on this system.
   std::vector<std::pair<typename Event<T>::PeriodicAttribute,
                         std::unique_ptr<Event<T>>>>
@@ -1386,9 +1447,6 @@ class LeafSystem : public System<T> {
 
   // Model outputs to be used in AllocateParameters.
   detail::ModelValues model_numeric_parameters_;
-
-  // Functions to convert this system to use alternative scalar types.
-  SystemScalarConverter system_scalar_converter_;
 };
 
 }  // namespace systems

@@ -1,8 +1,7 @@
 #pragma once
 
-#include <fstream>
-#include <memory>
-#include <utility>
+#include <sstream>
+#include <stdexcept>
 
 #include "drake/common/drake_copyable.h"
 #include "drake/systems/controllers/state_feedback_controller_interface.h"
@@ -100,7 +99,7 @@ class PidController : public StateFeedbackControllerInterface<T>,
                 const Eigen::VectorXd& kp, const Eigen::VectorXd& ki,
                 const Eigen::VectorXd& kd);
 
-  /** Scalar-converting copy constructor. */
+  /** Scalar-converting copy constructor.  See @ref system_scalar_conversion. */
   template <typename U>
   explicit PidController(const PidController<U>&);
 

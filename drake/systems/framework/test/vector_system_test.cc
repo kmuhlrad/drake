@@ -268,7 +268,7 @@ TEST_F(VectorSystemTest, OutputDiscrete) {
   auto& output_port = dut.get_output_port();
   std::unique_ptr<AbstractValue> output = output_port.Allocate(*context);
   context->FixInputPort(0, BasicVector<double>::Make({1, 2}));
-  context->get_mutable_discrete_state(0)->SetFromVector(
+  context->get_mutable_discrete_state(0).SetFromVector(
       Eigen::Vector2d::Ones());
   output_port.Calc(*context, output.get());
   EXPECT_EQ(dut.get_output_count(), 1);
@@ -332,14 +332,14 @@ TEST_F(VectorSystemTest, DiscreteVariableUpdates) {
   dut.set_prototype_discrete_state_count(1);
   context = dut.CreateDefaultContext();
   context->FixInputPort(0, BasicVector<double>::Make({1, 2}));
-  context->get_mutable_discrete_state(0)->SetFromVector(
+  context->get_mutable_discrete_state(0).SetFromVector(
       Eigen::Vector2d::Ones());
   discrete_updates = dut.AllocateDiscreteVariables();
   dut.CalcDiscreteVariableUpdates(*context, discrete_updates.get());
   EXPECT_EQ(dut.get_last_context(), context.get());
   EXPECT_EQ(dut.get_discrete_variable_updates_count(), 1);
-  EXPECT_EQ(discrete_updates->get_vector(0)->GetAtIndex(0), 2.0);
-  EXPECT_EQ(discrete_updates->get_vector(0)->GetAtIndex(1), 3.0);
+  EXPECT_EQ(discrete_updates->get_vector(0).GetAtIndex(0), 2.0);
+  EXPECT_EQ(discrete_updates->get_vector(0).GetAtIndex(1), 3.0);
 
   // Nothing else weird happened.
   EXPECT_EQ(dut.get_time_derivatives_count(), 0);
@@ -416,12 +416,12 @@ class NoInputNoOutputDiscreteTimeSystem : public VectorSystem<double> {
 TEST_F(VectorSystemTest, NoInputNoOutputDiscreteTimeSystemTest) {
   NoInputNoOutputDiscreteTimeSystem dut;
   auto context = dut.CreateDefaultContext();
-  context->get_mutable_discrete_state()->get_mutable_vector()->SetFromVector(
+  context->get_mutable_discrete_state()->get_mutable_vector().SetFromVector(
       Vector1d::Constant(2.0));
 
   auto discrete_updates = dut.AllocateDiscreteVariables();
   dut.CalcDiscreteVariableUpdates(*context, discrete_updates.get());
-  EXPECT_EQ(discrete_updates->get_vector(0)->GetAtIndex(0), 8.0);
+  EXPECT_EQ(discrete_updates->get_vector(0).GetAtIndex(0), 8.0);
 
   EXPECT_EQ(dut.get_num_output_ports(), 0);
 }
@@ -443,6 +443,7 @@ class OpenScalarTypeSystem : public VectorSystem<T> {
   int get_some_number() const { return some_number_; }
 
  private:
+  // Allow different specializations to access each other's private data.
   template <typename> friend class OpenScalarTypeSystem;
 
   const int some_number_{};
@@ -462,6 +463,44 @@ TEST_F(VectorSystemTest, ToSymbolicTest) {
   EXPECT_TRUE(is_symbolic_convertible(dut, [](const auto& converted) {
     EXPECT_EQ(converted.get_some_number(), 22);
   }));
+}
+
+/// A system that passes a custom SystemScalarConverter object to VectorSystem,
+/// rather than a SystemTypeTag.
+template <typename T>
+class DirectScalarTypeConversionSystem : public VectorSystem<T> {
+ public:
+  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(DirectScalarTypeConversionSystem);
+
+  DirectScalarTypeConversionSystem()
+      : VectorSystem<T>(MakeConverter(), 0, 0) {
+    // This will fail at compile-time if T is ever symbolic::Expression.
+    const T neg_one = test::copysign_int_to_non_symbolic_scalar(-1, T{1.0});
+    DRAKE_DEMAND(neg_one == T{-1.0});
+  }
+
+  explicit DirectScalarTypeConversionSystem(
+      const DirectScalarTypeConversionSystem<double>&, int dummy = 0)
+      : DirectScalarTypeConversionSystem<T>() {}
+
+ private:
+  static SystemScalarConverter MakeConverter() {
+    // Only support double => AutoDiffXd.
+    SystemScalarConverter result;
+    result.AddIfSupported<
+      systems::DirectScalarTypeConversionSystem, AutoDiffXd, double>();
+    return result;
+  }
+};
+
+TEST_F(VectorSystemTest, DirectToAutoDiffXdTest) {
+  DirectScalarTypeConversionSystem<double> dut;
+
+  // Convert to AutoDiffXd.
+  EXPECT_TRUE(is_autodiffxd_convertible(dut));
+
+  // Convert to Symbolic (expected fail).
+  EXPECT_EQ(dut.ToSymbolicMaybe(), nullptr);
 }
 
 // This system declares an output and continuous state, but does not define
@@ -501,7 +540,7 @@ TEST_F(VectorSystemTest, MissingMethodsDiscreteTimeSystemTest) {
   MissingMethodsDiscreteTimeSystem dut;
   auto context = dut.CreateDefaultContext();
 
-  context->get_mutable_discrete_state()->get_mutable_vector()->SetFromVector(
+  context->get_mutable_discrete_state()->get_mutable_vector().SetFromVector(
       Vector1d::Constant(2.0));
   auto discrete_updates = dut.AllocateDiscreteVariables();
   EXPECT_THROW(

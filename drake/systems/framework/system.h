@@ -10,13 +10,13 @@
 #include <utility>
 #include <vector>
 
-#include "drake/common/autodiff_overloads.h"
+#include "drake/common/autodiff.h"
 #include "drake/common/drake_assert.h"
 #include "drake/common/drake_copyable.h"
 #include "drake/common/drake_throw.h"
-#include "drake/common/eigen_autodiff_types.h"
 #include "drake/common/nice_type_name.h"
 #include "drake/common/symbolic.h"
+#include "drake/common/text_logging.h"
 #include "drake/common/unused.h"
 #include "drake/systems/framework/cache.h"
 #include "drake/systems/framework/context.h"
@@ -26,6 +26,7 @@
 #include "drake/systems/framework/output_port.h"
 #include "drake/systems/framework/output_port_value.h"
 #include "drake/systems/framework/system_constraint.h"
+#include "drake/systems/framework/system_scalar_converter.h"
 #include "drake/systems/framework/witness_function.h"
 
 namespace drake {
@@ -40,8 +41,32 @@ class SystemImpl {
 
   // The implementation of System<T>::GetMemoryObjectName.
   static std::string GetMemoryObjectName(const std::string&, int64_t);
+
+ private:
+  // Attorney-Client idiom to expose a subset of private elements of System.
+  // We are the attorney.  These are the clients that can access our private
+  // members, and thus access some subset of System's private members.
+  template <typename> friend class Diagram;
+
+  // Return a mutable reference to the System's SystemScalarConverter.  Diagram
+  // needs this in order to withdraw support for certain scalar type conversion
+  // operations once it learns about what its subsystems support.
+  template <typename T>
+  static SystemScalarConverter& get_mutable_system_scalar_converter(
+      System<T>* system) {
+    DRAKE_DEMAND(system != nullptr);
+    return system->system_scalar_converter_;
+  }
 };
 /** @endcond */
+
+/// Defines the implementation of the stdc++ concept UniformRandomBitGenerator
+/// to be used by the Systems classes.  This is provided as a work-around to
+/// enable the use of the generator in virtual methods (which cannot be
+/// templated on the generator type).
+// TODO(russt): As discussed with sammy-tri, we could replace this with a
+// a templated class that exposes the required methods from the concept.
+typedef std::mt19937 RandomGenerator;
 
 /// A superclass template for systems that receive input, maintain state, and
 /// produce output of a given mathematical type T.
@@ -129,10 +154,10 @@ class System {
   }
 
   /// This convenience method allocates a context using AllocateContext() and
-  /// sets its default values using SetDefaults().
+  /// sets its default values using SetDefaultContext().
   std::unique_ptr<Context<T>> CreateDefaultContext() const {
     std::unique_ptr<Context<T>> context = AllocateContext();
-    SetDefaults(context.get());
+    SetDefaultContext(context.get());
     return context;
   }
 
@@ -141,9 +166,90 @@ class System {
   virtual void SetDefaultState(const Context<T>& context,
                                State<T>* state) const = 0;
 
+  /// Assigns default values to all parameters. Overrides must not
+  /// change the number of parameters.
+  virtual void SetDefaultParameters(const Context<T>& context,
+                                    Parameters<T>* parameters) const = 0;
+
   // Sets Context fields to their default values.  User code should not
   // override.
-  virtual void SetDefaults(Context<T>* context) const = 0;
+  void SetDefaultContext(Context<T>* context) const {
+    // Set the default state, checking that the number of state variables does
+    // not change.
+    const int n_xc = context->get_continuous_state()->size();
+    const int n_xd = context->get_num_discrete_state_groups();
+    const int n_xa = context->get_num_abstract_state_groups();
+
+    SetDefaultState(*context, context->get_mutable_state());
+
+    DRAKE_DEMAND(n_xc == context->get_continuous_state()->size());
+    DRAKE_DEMAND(n_xd == context->get_num_discrete_state_groups());
+    DRAKE_DEMAND(n_xa == context->get_num_abstract_state_groups());
+
+    // Set the default parameters, checking that the number of parameters does
+    // not change.
+    const int num_params = context->num_numeric_parameters();
+    SetDefaultParameters(*context, &context->get_mutable_parameters());
+    DRAKE_DEMAND(num_params == context->num_numeric_parameters());
+  }
+
+  /// Assigns random values to all elements of the state.
+  /// This default implementation calls SetDefaultState; override this method to
+  /// provide random initial conditions using the stdc++ random library, e.g.:
+  /// @code
+  ///   std::normal_distribution<T> gaussian();
+  ///   state->get_mutable_continuous_state()->get_mutable_vector()
+  ///        ->SetAtIndex(0, gaussian(*generator));
+  /// @endcode
+  /// Overrides must not change the number of state variables.
+  ///
+  /// @see @ref stochastic_systems
+  virtual void SetRandomState(const Context<T>& context, State<T>* state,
+                              RandomGenerator* generator) const {
+    unused(generator);
+    SetDefaultState(context, state);
+  }
+
+  /// Assigns random values to all parameters.
+  /// This default implementation calls SetDefaultParameters; override this
+  /// method to provide random parameters using the stdc++ random library, e.g.:
+  /// @code
+  ///   std::uniform_real_distribution<T> uniform();
+  ///   parameters->get_mutable_numeric_parameter(0)
+  ///             ->SetAtIndex(0, uniform(*generator));
+  /// @endcode
+  /// Overrides must not change the number of state variables.
+  ///
+  /// @see @ref stochastic_systems
+  virtual void SetRandomParameters(const Context<T>& context,
+                                   Parameters<T>* parameters,
+                                   RandomGenerator* generator) const {
+    unused(generator);
+    SetDefaultParameters(context, parameters);
+  }
+
+  // Sets Context fields to random values.  User code should not
+  // override.
+  void SetRandomContext(Context<T>* context, RandomGenerator* generator) const {
+    // Set the default state, checking that the number of state variables does
+    // not change.
+    const int n_xc = context->get_continuous_state()->size();
+    const int n_xd = context->get_num_discrete_state_groups();
+    const int n_xa = context->get_num_abstract_state_groups();
+
+    SetRandomState(*context, context->get_mutable_state(), generator);
+
+    DRAKE_DEMAND(n_xc == context->get_continuous_state()->size());
+    DRAKE_DEMAND(n_xd == context->get_num_discrete_state_groups());
+    DRAKE_DEMAND(n_xa == context->get_num_abstract_state_groups());
+
+    // Set the default parameters, checking that the number of parameters does
+    // not change.
+    const int num_params = context->num_numeric_parameters();
+    SetRandomParameters(*context, &context->get_mutable_parameters(),
+                        generator);
+    DRAKE_DEMAND(num_params == context->num_numeric_parameters());
+  }
 
   /// For each input port, allocates a freestanding input of the concrete type
   /// that this System requires, and binds it to the port, disconnecting any
@@ -551,6 +657,43 @@ class System {
     DoGetPerStepEvents(context, events);
   }
 
+  /// Gets whether there exists a unique periodic attribute that triggers
+  /// one or more discrete update events (and, if so, returns that unique
+  /// periodic attribute). Thus, this method can be used (1) as a test to
+  /// determine whether a system's dynamics are at least partially governed by
+  /// difference equations and (2) to obtain the difference equation update
+  /// times.
+  /// @param[out] periodic_attr Contains the periodic trigger attributes
+  ///             on return of `true` from this function; the value will be
+  ///             unchanged on return value `false`. Function aborts if null.
+  /// @returns `true` if there exists a unique periodic attribute that triggers
+  ///          one or more discrete update events and `false` otherwise.
+  optional<typename Event<T>::PeriodicAttribute>
+      GetUniquePeriodicDiscreteUpdateAttribute() const {
+    optional<typename Event<T>::PeriodicAttribute> saved_attr;
+    auto periodic_events = GetPeriodicEvents();
+    for (const auto& saved_attr_and_vector : periodic_events) {
+      for (const auto& event : saved_attr_and_vector.second) {
+        if (event->is_discrete_update()) {
+          if (saved_attr)
+            return nullopt;
+          saved_attr = saved_attr_and_vector.first;
+          break;
+        }
+      }
+    }
+
+    return saved_attr;
+  }
+
+  /// Gets all periodic triggered events for a system. Each periodic attribute
+  /// (offset and period, in seconds) is mapped to one or more update events
+  /// that are to be triggered at the proper times.
+  std::map<typename Event<T>::PeriodicAttribute, std::vector<const Event<T>*>,
+    PeriodicAttributeComparator<T>> GetPeriodicEvents() const {
+    return DoGetPeriodicEvents();
+  }
+
   /// Utility method that computes for _every_ output port i the value y(i) that
   /// should result from the current contents of the given Context. Note that
   /// individual output port values can be calculated using
@@ -742,7 +885,8 @@ class System {
   // These three methods would ideally be designated as "protected", but
   // Diagram::AllocateForcedXEventCollection() needs to call these methods and,
   // perhaps surprisingly, is not able to access these methods when they are
-  // protected. See: https://stackoverflow.com/questions/16785069/why-cant-a-derived-class-call-protected-member-function-in-this-code.
+  // protected. See:
+  // https://stackoverflow.com/questions/16785069/why-cant-a-derived-class-call-protected-member-function-in-this-code.
   // To address this problem, we keep the methods "public" and
   // (1) Make the overriding methods in LeafSystem and Diagram "final" and
   // (2) Use the doxygen cond/endcond tags so that these methods are hidden
@@ -767,8 +911,10 @@ class System {
   void set_name(const std::string& name) { name_ = name; }
 
   /// Returns the name last supplied to set_name(), or empty if set_name() was
-  /// never called.  Systems created through transmogrification have by default
-  /// an identical name to the system they were created from.
+  /// never called.  Systems with an empty name that are added to a Diagram
+  /// will have a default name automatically assigned.  Systems created through
+  /// transmogrification have by default an identical name to the system they
+  /// were created from.
   std::string get_name() const { return name_; }
 
   /// Returns a name for this %System based on a stringification of its type
@@ -848,6 +994,23 @@ class System {
                               " constraints.");
     }
     return *constraints_[constraint_index];
+  }
+
+  /// Returns true if @p context satisfies all of the registered
+  /// SystemConstraints with tolerance @p tol.  @see
+  /// SystemConstraint::CheckSatisfied.
+  bool CheckSystemConstraintsSatisfied(const Context<T> &context,
+                                       double tol) const {
+    DRAKE_DEMAND(tol >= 0.0);
+    for (const auto& constraint : constraints_) {
+      if (!constraint->CheckSatisfied(context, tol)) {
+        SPDLOG_DEBUG(drake::log(),
+                     "Context fails to satisfy SystemConstraint {}",
+                     constraint->description());
+        return false;
+      }
+    }
+    return true;
   }
 
   /// Returns the total dimension of all of the input ports (as if they were
@@ -986,6 +1149,9 @@ class System {
   /// scalar type, with a dynamic-sized vector of partial derivatives.  The
   /// result is never nullptr.
   /// @throw exception if this System does not support autodiff
+  ///
+  /// See @ref system_scalar_conversion for detailed background and examples
+  /// related to scalar-type conversion support.
   std::unique_ptr<System<AutoDiffXd>> ToAutoDiffXd() const {
     return System<T>::ToAutoDiffXd(*this);
   }
@@ -1002,14 +1168,16 @@ class System {
   /// @endcode
   ///
   /// @tparam S The specific System type to accept and return.
+  ///
+  /// See @ref system_scalar_conversion for detailed background and examples
+  /// related to scalar-type conversion support.
   template <template <typename> class S = ::drake::systems::System>
   static std::unique_ptr<S<AutoDiffXd>> ToAutoDiffXd(const S<T>& from) {
     using U = AutoDiffXd;
-    const System<T>& from_system = from;  // Upcast to unlock protected methods.
-    std::unique_ptr<System<U>> base_result{from_system.DoToAutoDiffXd()};
+    std::unique_ptr<System<U>> base_result = from.ToAutoDiffXdMaybe();
     if (!base_result) {
       std::stringstream ss;
-      ss << "The object named [" << from.get_name() << "] of type"
+      ss << "The object named [" << from.get_name() << "] of type "
          << NiceTypeName::Get(from) << " does not support ToAutoDiffXd.";
       throw std::logic_error(ss.str().c_str());
     }
@@ -1020,8 +1188,6 @@ class System {
     std::unique_ptr<S<U>> result{&dynamic_cast<S<U>&>(*base_result)};
     base_result.release();
 
-    // Match the result's name to its originator.
-    result->set_name(from.get_name());
     return result;
   }
 
@@ -1029,12 +1195,7 @@ class System {
   /// returns nullptr if this System does not support autodiff, instead of
   /// throwing an exception.
   std::unique_ptr<System<AutoDiffXd>> ToAutoDiffXdMaybe() const {
-    std::unique_ptr<System<AutoDiffXd>> result{DoToAutoDiffXd()};
-    if (result) {
-      // Match the result's name to its originator.
-      result->set_name(this->get_name());
-    }
-    return result;
+    return system_scalar_converter_.Convert<AutoDiffXd, T>(*this);
   }
   //@}
 
@@ -1050,6 +1211,9 @@ class System {
   /// Creates a deep copy of this System, transmogrified to use the symbolic
   /// scalar type. The result is never nullptr.
   /// @throw exception if this System does not support symbolic
+  ///
+  /// See @ref system_scalar_conversion for detailed background and examples
+  /// related to scalar-type conversion support.
   std::unique_ptr<System<symbolic::Expression>> ToSymbolic() const {
     return System<T>::ToSymbolic(*this);
   }
@@ -1065,14 +1229,16 @@ class System {
   /// @endcode
   ///
   /// @tparam S The specific System pointer type to return.
+  ///
+  /// See @ref system_scalar_conversion for detailed background and examples
+  /// related to scalar-type conversion support.
   template <template <typename> class S = ::drake::systems::System>
   static std::unique_ptr<S<symbolic::Expression>> ToSymbolic(const S<T>& from) {
     using U = symbolic::Expression;
-    const System<T>& from_system = from;  // Upcast to unlock protected methods.
-    std::unique_ptr<System<U>> base_result{from_system.DoToSymbolic()};
+    std::unique_ptr<System<U>> base_result = from.ToSymbolicMaybe();
     if (!base_result) {
       std::stringstream ss;
-      ss << "The object named [" << from.get_name() << "] of type"
+      ss << "The object named [" << from.get_name() << "] of type "
          << NiceTypeName::Get(from) << " does not support ToSymbolic.";
       throw std::logic_error(ss.str().c_str());
     }
@@ -1083,8 +1249,6 @@ class System {
     std::unique_ptr<S<U>> result{&dynamic_cast<S<U>&>(*base_result)};
     base_result.release();
 
-    // Match the result's name to its originator.
-    result->set_name(from.get_name());
     return result;
   }
 
@@ -1092,12 +1256,7 @@ class System {
   /// nullptr if this System does not support symbolic, instead of throwing an
   /// exception.
   std::unique_ptr<System<symbolic::Expression>> ToSymbolicMaybe() const {
-    std::unique_ptr<System<symbolic::Expression>> result{DoToSymbolic()};
-    if (result) {
-      // Match the result's name to its originator.
-      result->set_name(this->get_name());
-    }
-    return result;
+    return system_scalar_converter_.Convert<symbolic::Expression, T>(*this);
   }
   //@}
 
@@ -1141,6 +1300,13 @@ class System {
         DRAKE_ABORT_MSG("Unknown descriptor type.");
       }
     }
+  }
+
+  /// (Advanced) Returns the SystemScalarConverter for this object.  This is an
+  /// expert-level API intended for framework authors.  Most users should
+  /// prefer the convenience helpers such as System::ToAutoDiffXd.
+  const SystemScalarConverter& get_system_scalar_converter() const {
+    return system_scalar_converter_;
   }
 
   //@}
@@ -1263,15 +1429,27 @@ class System {
   /// Authors of derived %Systems can use these methods in the constructor
   /// for those %Systems.
   //@{
-  /// Constructs an empty %System base class object.
-  System() {}
+  /// Constructs an empty %System base class object, possibly supporting
+  /// scalar-type conversion support (AutoDiff, etc.) using @p converter.
+  ///
+  /// See @ref system_scalar_conversion for detailed background and examples
+  /// related to scalar-type conversion support.
+  explicit System(SystemScalarConverter converter)
+      : system_scalar_converter_(std::move(converter)) {}
 
   /// Adds a port with the specified @p type and @p size to the input topology.
+  /// If the port is intended to model a random noise or disturbance input,
+  /// @p random_type can (optionally) be used to label it as such; doing so
+  /// enables algorithms for design and analysis (e.g. state estimation) to
+  /// reason explicitly about randomness at the system level.  All random input
+  /// ports are assumed to be statistically independent.
   /// @return descriptor of declared port.
-  const InputPortDescriptor<T>& DeclareInputPort(PortDataType type, int size) {
+  const InputPortDescriptor<T>& DeclareInputPort(
+      PortDataType type, int size,
+      optional<RandomDistribution> random_type = nullopt) {
     int port_index = get_num_input_ports();
-    input_ports_.push_back(
-        std::make_unique<InputPortDescriptor<T>>(this, port_index, type, size));
+    input_ports_.push_back(std::make_unique<InputPortDescriptor<T>>(
+        this, port_index, type, size, random_type));
     return *input_ports_.back();
   }
 
@@ -1376,6 +1554,14 @@ class System {
     unused(context, events);
     *time = std::numeric_limits<T>::infinity();
   }
+
+  /// Implement this method to return all periodic triggered events.
+  /// @see GetPeriodicEvents() for a detailed description of the returned
+  ///      variable.
+  /// @note The default implementation returns an empty map.
+  virtual std::map<typename Event<T>::PeriodicAttribute,
+      std::vector<const Event<T>*>, PeriodicAttributeComparator<T>>
+    DoGetPeriodicEvents() const = 0;
 
   /// Implement this method to return any events to be handled before the
   /// simulator integrates the system's continuous state at each time step.
@@ -1510,16 +1696,6 @@ class System {
     DRAKE_THROW_UNLESS(qdot->size() == n);
     qdot->SetFromVector(generalized_velocity);
   }
-
-  /// NVI implementation of ToAutoDiffXdMaybe. Caller takes ownership of the
-  /// returned pointer.
-  /// @return nullptr if this System does not support autodiff
-  virtual System<AutoDiffXd>* DoToAutoDiffXd() const { return nullptr; }
-
-  /// NVI implementation of ToSymbolicMaybe. Caller takes ownership of the
-  /// returned pointer.
-  /// @return nullptr if this System does not support symbolic form
-  virtual System<symbolic::Expression>* DoToSymbolic() const { return nullptr; }
   //@}
 
 //----------------------------------------------------------------------------
@@ -1658,6 +1834,10 @@ class System {
   }
 
  private:
+  // Attorney-Client idiom to expose a subset of private elements of System.
+  // Refer to SystemImpl comments for details.
+  friend class SystemImpl;
+
   std::string name_;
   // input_ports_ and output_ports_ are vectors of unique_ptr so that references
   // to the descriptors will remain valid even if the vector is resized.
@@ -1676,6 +1856,9 @@ class System {
       forced_discrete_update_{nullptr};
   std::unique_ptr<EventCollection<UnrestrictedUpdateEvent<T>>>
       forced_unrestricted_update_{nullptr};
+
+  // Functions to convert this system to use alternative scalar types.
+  SystemScalarConverter system_scalar_converter_;
 
   // TODO(sherm1) Replace these fake cache entries with real cache asap.
   // These are temporaries and hence uninitialized.

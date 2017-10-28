@@ -1,0 +1,17 @@
+# -*- python -*-
+
+package(default_visibility = ["//visibility:public"])
+
+load("//tools/lint:lint.bzl", "add_lint_tests")
+
+# TODO(6996) This file is a compatibility shim; remove this as soon as CI no
+# longer needs it.
+genrule(
+    name = "deprecated_doc",
+    srcs = ["//doc:sphinx.zip"],
+    outs = ["doc/sphinx.zip"],
+    cmd = "cp $(location //doc:sphinx.zip) '$@'",
+    visibility = [],
+)
+
+add_lint_tests()

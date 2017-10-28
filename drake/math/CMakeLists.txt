@@ -14,6 +14,7 @@ set(sources
   jacobian.cc
   matrix_util.cc
   normalize_vector.cc
+  quadratic_form.cc
   quaternion.cc
   roll_pitch_yaw.cc
   rotation_conversion_gradient.cc
@@ -37,6 +38,7 @@ set(installed_headers
   jacobian.h
   matrix_util.h
   normalize_vector.h
+  quadratic_form.h
   quaternion.h
   random_rotation.h
   roll_pitch_yaw.h
@@ -46,12 +48,7 @@ set(installed_headers
   rotation_matrix.h
   saturate.h)
 
-# Headers that are needed by code here but should not
-# be exposed anywhere else.
-set(private_headers)
-
-add_library_with_exports(LIB_NAME drakeMath
-  SOURCE_FILES ${sources} ${installed_headers} ${private_headers})
+add_library(drakeMath ${sources} ${installed_headers})
 target_link_libraries(drakeMath
   drakeCommon
   Eigen3::Eigen)
@@ -59,13 +56,3 @@ target_link_libraries(drakeMath
 drake_install_headers(${installed_headers})
 
 drake_install_libraries(drakeMath)
-drake_install_pkg_config_file(drake-math
-  TARGET drakeMath
-  LIBS -ldrakeMath
-  REQUIRES
-    drake-common
-    eigen3)
-
-if(BUILD_TESTING)
-  add_subdirectory(test)
-endif()

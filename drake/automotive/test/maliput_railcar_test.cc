@@ -13,7 +13,7 @@
 #include "drake/automotive/maliput/api/road_geometry.h"
 #include "drake/automotive/maliput/dragway/road_geometry.h"
 #include "drake/automotive/maliput/monolane/builder.h"
-#include "drake/common/eigen_matrix_compare.h"
+#include "drake/common/test_utilities/eigen_matrix_compare.h"
 #include "drake/math/roll_pitch_yaw_not_using_quaternion.h"
 #include "drake/multibody/multibody_tree/math/spatial_velocity.h"
 #include "drake/systems/framework/leaf_context.h"
@@ -224,7 +224,7 @@ class MaliputRailcarTest : public ::testing::Test {
 
   // Sets the configuration parameters of the railcar.
   void SetParams(const MaliputRailcarParams<double>& params) {
-    dut_->get_mutable_parameters(context_.get())->SetFrom(params);
+    dut_->get_mutable_parameters(context_.get()).SetFrom(params);
   }
 
   // Obtains the lanes created by the call to InitializeTwoLaneStretchOfRoad().

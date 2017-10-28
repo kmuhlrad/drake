@@ -15,31 +15,32 @@ using symbolic::Formula;
 SystemSymbolicInspector::SystemSymbolicInspector(
     const System<symbolic::Expression>& system)
     : context_(system.CreateDefaultContext()),
-      output_(system.AllocateOutput(*context_)),
-      derivatives_(system.AllocateTimeDerivatives()),
-      discrete_updates_(system.AllocateDiscreteVariables()),
       input_variables_(system.get_num_input_ports()),
       continuous_state_variables_(context_->get_continuous_state()->size()),
       discrete_state_variables_(context_->get_num_discrete_state_groups()),
+      numeric_parameters_(context_->num_numeric_parameters()),
+      output_(system.AllocateOutput(*context_)),
+      derivatives_(system.AllocateTimeDerivatives()),
+      discrete_updates_(system.AllocateDiscreteVariables()),
       output_port_types_(system.get_num_output_ports()),
       context_is_abstract_(IsAbstract(system, *context_)) {
   // Stop analysis if the Context is in any way abstract, because we have no way
   // to initialize the abstract elements.
   if (context_is_abstract_) return;
 
-  // Time
+  // Time.
   time_ = symbolic::Variable("t");
   context_->set_time(time_);
 
-  // Input
+  // Input.
   InitializeVectorInputs(system);
 
-  // State
+  // State.
   InitializeContinuousState();
   InitializeDiscreteState();
 
-  // Parameters
-  // TODO(david-german-tri): Initialize parameters, once #5072 is resolved.
+  // Parameters.
+  InitializeParameters();
 
   // Outputs.
   for (int i = 0; i < system.get_num_output_ports(); ++i) {
@@ -112,13 +113,28 @@ void SystemSymbolicInspector::InitializeDiscreteState() {
   // expression whose value is the variable "xdi_j".
   auto& xd = *context_->get_mutable_discrete_state();
   for (int i = 0; i < context_->get_num_discrete_state_groups(); ++i) {
-    auto& xdi = *xd.get_mutable_vector(i);
+    auto& xdi = xd.get_mutable_vector(i);
     discrete_state_variables_[i].resize(xdi.size());
     for (int j = 0; j < xdi.size(); ++j) {
       std::ostringstream name;
       name << "xd" << i << "_" << j;
       discrete_state_variables_[i][j] = symbolic::Variable(name.str());
       xdi[j] = discrete_state_variables_[i][j];
+    }
+  }
+}
+
+void SystemSymbolicInspector::InitializeParameters() {
+  // For each numeric parameter vector i, set each element j to a symbolic
+  // expression whose value is the variable "pi_j".
+  for (int i = 0; i < context_->num_numeric_parameters(); ++i) {
+    auto& pi = context_->get_mutable_numeric_parameter(i);
+    numeric_parameters_[i].resize(pi.size());
+    for (int j = 0; j < pi.size(); ++j) {
+      std::ostringstream name;
+      name << "p" << i << "_" << j;
+      numeric_parameters_[i][j] = symbolic::Variable(name.str());
+      pi[j] = numeric_parameters_[i][j];
     }
   }
 }
@@ -134,13 +150,14 @@ bool SystemSymbolicInspector::IsAbstract(
     }
   }
 
-  // If there is any abstract state, we cannot do sparsity analysis of this
-  // Context.
+  // If there is any abstract state or parameters, we cannot do sparsity
+  // analysis of this Context.
   if (context.get_num_abstract_state_groups() > 0) {
     return true;
   }
-
-  // TODO(david-german-tri): Check parameters once #5072 is resolved.
+  if (context.num_abstract_parameters() > 0) {
+    return true;
+  }
 
   return false;
 }
@@ -210,7 +227,7 @@ bool SystemSymbolicInspector::IsTimeInvariant() const {
     return false;
   }
   for (int i = 0; i < discrete_updates_->num_groups(); ++i) {
-    if (!is_time_invariant(discrete_updates_->get_vector(i)->get_value(),
+    if (!is_time_invariant(discrete_updates_->get_vector(i).get_value(),
                            time_)) {
       return false;
     }
@@ -266,7 +283,7 @@ bool SystemSymbolicInspector::HasAffineDynamics() const {
     return false;
   }
   for (int i = 0; i < discrete_updates_->num_groups(); ++i) {
-    if (!is_affine(discrete_updates_->get_vector(i)->get_value(), vars)) {
+    if (!is_affine(discrete_updates_->get_vector(i).get_value(), vars)) {
       return false;
     }
   }

@@ -69,11 +69,8 @@ const char kIiwaEndEffectorName[] = "iiwa_link_ee";
 // 0.736 + 0.057 / 2.
 const double kTableTopZInWorld = 0.736 + 0.057 / 2;
 
-// Coordinates for kRobotBase originally from iiwa_world_demo.cc.
-// The intention is to center the robot on the table.
-// TODO(sam.creasey) fix this
 const Eigen::Vector3d kRobotBase(0, 0, kTableTopZInWorld);
-const Eigen::Vector3d kTableBase(0.243716, 0.625087, 0.);
+const Eigen::Vector3d kTableBase(0, 0, 0);
 
 struct Target {
   std::string model_name;
@@ -345,8 +342,8 @@ int DoMain(void) {
   const Vector6<double>& object_velocity = world_state.get_object_velocity();
   Isometry3<double> goal = place_locations.back();
   goal.translation()(2) += kTableTopZInWorld;
-  Eigen::Vector3d object_rpy = math::rotmat2rpy(object_pose.rotation());
-  Eigen::Vector3d goal_rpy = math::rotmat2rpy(goal.rotation());
+  Eigen::Vector3d object_rpy = math::rotmat2rpy(object_pose.linear());
+  Eigen::Vector3d goal_rpy = math::rotmat2rpy(goal.linear());
 
   drake::log()->info("Pose: {} {}",
                      object_pose.translation().transpose(),

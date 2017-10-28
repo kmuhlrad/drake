@@ -41,12 +41,9 @@ class RotaryEncoders final : public VectorSystem<T> {
                  const std::vector<int>& input_vector_indices,
                  const std::vector<int>& ticks_per_revolution);
 
-  /// Scalar-converting copy constructor.
+  /// Scalar-converting copy constructor.  See @ref system_scalar_conversion.
   template <typename U>
   explicit RotaryEncoders(const RotaryEncoders<U>&);
-
-  /// Calibration offsets are defined as parameters.
-  std::unique_ptr<Parameters<T>> AllocateParameters() const override;
 
   /// Set the calibration offset parameters.
   void set_calibration_offsets(
@@ -58,6 +55,7 @@ class RotaryEncoders final : public VectorSystem<T> {
       const Context<T>& context) const;
 
  private:
+  // Allow different specializations to access each other's private data.
   template <typename> friend class RotaryEncoders;
 
   // Outputs the transformed signal.
@@ -66,9 +64,6 @@ class RotaryEncoders final : public VectorSystem<T> {
       const Eigen::VectorBlock<const VectorX<T>>& input,
       const Eigen::VectorBlock<const VectorX<T>>& state,
       Eigen::VectorBlock<VectorX<T>>* output) const override;
-
-  void SetDefaultParameters(const LeafContext<T>& context,
-                            Parameters<T>* params) const override;
 
   const int num_encoders_{0};       // Dimension of the output port.
   const std::vector<int> indices_;  // Selects from the input port.

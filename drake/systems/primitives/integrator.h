@@ -1,10 +1,6 @@
 #pragma once
 
-#include <cstdint>
-#include <memory>
-
 #include "drake/common/drake_copyable.h"
-#include "drake/common/symbolic.h"
 #include "drake/systems/framework/context.h"
 #include "drake/systems/framework/vector_system.h"
 
@@ -23,13 +19,18 @@ namespace systems {
 /// No other values for T are currently supported.
 /// @ingroup primitive_systems
 template <typename T>
-class Integrator : public VectorSystem<T> {
+class Integrator final : public VectorSystem<T> {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(Integrator)
 
   /// Constructs an %Integrator system.
   /// @param size number of elements in the signal to be processed.
   explicit Integrator(int size);
+
+  /// Scalar-converting copy constructor.  See @ref system_scalar_conversion.
+  template <typename U>
+  explicit Integrator(const Integrator<U>&);
+
   ~Integrator() override;
 
   /// Sets the value of the integral modifying the state in the context.
@@ -37,21 +38,7 @@ class Integrator : public VectorSystem<T> {
   void set_integral_value(Context<T>* context,
                           const Eigen::Ref<const VectorX<T>>& value) const;
 
-  // Returns an Integrator<AutoDiffXd> with the same dimensions as this
-  // Integrator.
-  std::unique_ptr<Integrator<AutoDiffXd>> ToAutoDiffXd() const {
-    return std::unique_ptr<Integrator<AutoDiffXd>>(DoToAutoDiffXd());
-  }
-
  protected:
-  // System<T> override.  Returns an Integrator<AutoDiffXd> with the same
-  // dimensions as this Integrator.
-  Integrator<AutoDiffXd>* DoToAutoDiffXd() const override;
-
-  // System<T> override.  Returns an Integrator<symbolic::Expression> with the
-  // same dimensions as this Integrator.
-  Integrator<symbolic::Expression>* DoToSymbolic() const override;
-
   // VectorSystem<T> override.
   void DoCalcVectorOutput(
       const Context<T>& context,

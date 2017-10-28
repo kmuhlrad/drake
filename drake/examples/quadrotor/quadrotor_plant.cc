@@ -2,28 +2,43 @@
 
 #include <memory>
 
+#include "drake/common/default_scalars.h"
 #include "drake/math/gradient.h"
 #include "drake/math/roll_pitch_yaw.h"
 #include "drake/systems/controllers/linear_quadratic_regulator.h"
 #include "drake/util/drakeGeometryUtil.h"
 
+using Eigen::Matrix3d;
+
 namespace drake {
 namespace examples {
 namespace quadrotor {
 
-template <typename T>
-QuadrotorPlant<T>::QuadrotorPlant() {
-  this->DeclareInputPort(systems::kVectorValued, kInputDimension);
-  this->DeclareContinuousState(kStateDimension);
-  this->DeclareVectorOutputPort(systems::BasicVector<T>(kStateDimension),
-                                &QuadrotorPlant::CopyStateOut);
+namespace {
+Matrix3d default_moment_of_inertia() {
+  return (Eigen::Matrix3d() <<  // BR
+          0.0023, 0, 0,  // BR
+          0, 0.0023, 0,  // BR
+          0, 0, 0.0040).finished();
 }
+}  // namespace
+
+template <typename T>
+QuadrotorPlant<T>::QuadrotorPlant()
+    : QuadrotorPlant(0.5,    // m (kg)
+                     0.175,  // L (m)
+                     default_moment_of_inertia(),
+                     1.0,    // kF
+                     0.0245  // kM
+                     ) {}
 
 template <typename T>
 QuadrotorPlant<T>::QuadrotorPlant(double m_arg, double L_arg,
-                                  const Matrix3<T>& I_arg, double kF_arg,
+                                  const Matrix3d& I_arg, double kF_arg,
                                   double kM_arg)
-    : m_(m_arg), L_(L_arg), kF_(kF_arg), kM_(kM_arg), I_(I_arg) {
+    : systems::LeafSystem<T>(
+          systems::SystemTypeTag<quadrotor::QuadrotorPlant>{}),
+      g_{9.81}, m_(m_arg), L_(L_arg), kF_(kF_arg), kM_(kM_arg), I_(I_arg) {
   this->DeclareInputPort(systems::kVectorValued, kInputDimension);
   this->DeclareContinuousState(kStateDimension);
   this->DeclareVectorOutputPort(systems::BasicVector<T>(kStateDimension),
@@ -31,12 +46,12 @@ QuadrotorPlant<T>::QuadrotorPlant(double m_arg, double L_arg,
 }
 
 template <typename T>
-QuadrotorPlant<T>::~QuadrotorPlant() {}
+template <typename U>
+QuadrotorPlant<T>:: QuadrotorPlant(const QuadrotorPlant<U>& other)
+    : QuadrotorPlant<T>(other.m_, other.L_, other.I_, other.kF_, other.kM_) {}
 
 template <typename T>
-QuadrotorPlant<AutoDiffXd>* QuadrotorPlant<T>::DoToAutoDiffXd() const {
-  return new QuadrotorPlant<AutoDiffXd>(m_, L_, I_, kF_, kM_);
-}
+QuadrotorPlant<T>::~QuadrotorPlant() {}
 
 template <typename T>
 void QuadrotorPlant<T>::CopyStateOut(const systems::Context<T> &context,
@@ -106,9 +121,6 @@ constexpr int QuadrotorPlant<T>::kStateDimension;
 template <typename T>
 constexpr int QuadrotorPlant<T>::kInputDimension;
 
-template class QuadrotorPlant<double>;
-template class QuadrotorPlant<AutoDiffXd>;
-
 std::unique_ptr<systems::AffineSystem<double>> StabilizingLQRController(
     const QuadrotorPlant<double>* quadrotor_plant,
     Eigen::Vector3d nominal_position) {
@@ -138,3 +150,6 @@ std::unique_ptr<systems::AffineSystem<double>> StabilizingLQRController(
 }  // namespace quadrotor
 }  // namespace examples
 }  // namespace drake
+
+DRAKE_DEFINE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_NONSYMBOLIC_SCALARS(
+    class ::drake::examples::quadrotor::QuadrotorPlant)

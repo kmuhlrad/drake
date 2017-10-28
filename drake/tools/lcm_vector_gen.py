@@ -4,10 +4,12 @@ Run this script using Bazel.
 
 import argparse
 import os
+import subprocess
 
 import google.protobuf.text_format
 
 from drake.tools import named_vector_pb2
+import tools.lint.clang_format as clang_format_lib
 
 
 def put(fileobj, text, newlines_after=0):
@@ -265,6 +267,52 @@ def generate_is_valid(hh, caller_context, fields):
     put(hh, IS_VALID_END % caller_context, 2)
 
 
+CALC_INEQUALITY_CONSTRAINT_BEGIN = """
+  // VectorBase override.
+  void CalcInequalityConstraint(VectorX<T>* value) const override {
+    value->resize(%(num_constraints)d);
+"""
+CALC_INEQUALITY_CONSTRAINT_MIN_VALUE = """
+    (*value)[%(constraint_index)d] = %(field)s() - T(%(min_value)s);
+"""
+CALC_INEQUALITY_CONSTRAINT_MAX_VALUE = """
+    (*value)[%(constraint_index)d] = T(%(max_value)s) - %(field)s();
+"""
+CALC_INEQUALITY_CONSTRAINT_END = """
+  }
+"""
+
+
+def generate_calc_inequality_constraint(hh, caller_context, fields):
+    num_constraints = 0
+    for field in fields:
+        if field['min_value']:
+            num_constraints += 1
+        if field['max_value']:
+            num_constraints += 1
+    if num_constraints == 0:
+        return
+    context = dict(caller_context)
+    context.update(num_constraints=num_constraints)
+    put(hh, CALC_INEQUALITY_CONSTRAINT_BEGIN % context, 1)
+    constraint_index = 0
+    for field in fields:
+        field_context = dict(caller_context)
+        field_context.update(field=field['name'])
+        if field['min_value']:
+            field_context.update(constraint_index=constraint_index)
+            field_context.update(min_value=field['min_value'])
+            put(hh, CALC_INEQUALITY_CONSTRAINT_MIN_VALUE % field_context, 1)
+            constraint_index += 1
+        if field['max_value']:
+            field_context.update(constraint_index=constraint_index)
+            field_context.update(max_value=field['max_value'])
+            put(hh, CALC_INEQUALITY_CONSTRAINT_MAX_VALUE % field_context, 1)
+            constraint_index += 1
+    assert constraint_index == num_constraints
+    put(hh, CALC_INEQUALITY_CONSTRAINT_END % context, 2)
+
+
 VECTOR_HH_PREAMBLE = """
 #pragma once
 
@@ -460,40 +508,27 @@ def generate_code(args):
     drake_dist_dir = args.workspace
     relative_cxx_dir = cxx_dir.replace(os.path.join(drake_dist_dir, ''), '')
 
-    title_phrase = args.title.split()
-    camel = ''.join([x.capitalize() for x in title_phrase])
-    snake = '_'.join([x.lower() for x in title_phrase])
-    screaming_snake = '_'.join([x.upper() for x in title_phrase])
+    snake, _ = os.path.splitext(os.path.basename(args.named_vector_file))
+    screaming_snake = snake.upper()
+    camel = "".join([x.capitalize() for x in snake.split("_")])
 
-    namespace = args.namespace.split("::")
-    opening_namespace = "".join(["namespace " + x + "{\n" for x in namespace])
-    closing_namespace = "".join(["}  // namespace " + x + "\n"
-                                 for x in reversed(namespace)])
-
-    if args.named_vector_file:
-        # Load the field names and docstrings from protobuf.
-        # In the future, this can be extended for nested messages.
-        with open(args.named_vector_file, "r") as f:
-            vec = named_vector_pb2.NamedVector()
-            google.protobuf.text_format.Merge(f.read(), vec)
-            fields = [{
-                'name': el.name,
-                'doc': el.doc,
-                'default_value': el.default_value,
-                'doc_units': el.doc_units,
-                'min_value': el.min_value,
-                'max_value': el.max_value,
-                } for el in vec.element]
-    else:
-        # Parse the field names from the command line.
+    # Load the vector's details from protobuf.
+    # In the future, this can be extended for nested messages.
+    with open(args.named_vector_file, "r") as f:
+        vec = named_vector_pb2.NamedVector()
+        google.protobuf.text_format.Merge(f.read(), vec)
         fields = [{
-            'name': x,
-            'doc': x,
-            'default_value': '',
-            'doc_units': '',
-            'min_value': '',
-            'max_value': '',
-        } for x in args.fields]
+            'name': el.name,
+            'doc': el.doc,
+            'default_value': el.default_value,
+            'doc_units': el.doc_units,
+            'min_value': el.min_value,
+            'max_value': el.max_value,
+        } for el in vec.element]
+        if vec.namespace:
+            namespace_list = vec.namespace.split("::")
+        else:
+            namespace_list = []
 
     # Default some field attributes if they are missing.
     for item in fields:
@@ -501,6 +536,12 @@ def generate_code(args):
             item['default_value'] = DEFAULT_CTOR_FIELD_DEFAULT_VALUE
         if len(item['doc_units']) == 0:
             item['doc_units'] = DEFAULT_CTOR_FIELD_UNKNOWN_DOC_UNITS
+
+    # The C++ namespace open & close dance is as requested in the protobuf.
+    opening_namespace = "".join(["namespace " + x + "{\n"
+                                 for x in namespace_list])
+    closing_namespace = "".join(["}  // namespace " + x + "\n"
+                                 for x in reversed(namespace_list)])
 
     # The context provides string substitutions for the C++ code blocks in the
     # literal strings throughout this program.
@@ -519,7 +560,9 @@ def generate_code(args):
     context.update(generated_code_warning='\n'.join([
         disclaimer, "// See drake/tools/lcm_vector_gen.py."]))
 
-    with open(os.path.join(cxx_dir, "%s.h" % snake), 'w') as hh:
+    cxx_names = []
+    cxx_names.append(os.path.join(cxx_dir, "%s.h" % snake))
+    with open(cxx_names[-1], 'w') as hh:
         print "generating %s" % hh.name
         put(hh, VECTOR_HH_PREAMBLE % context, 2)
         generate_indices(hh, context, fields)
@@ -531,10 +574,12 @@ def generate_code(args):
         generate_accessors(hh, context, fields)
         put(hh, GET_COORDINATE_NAMES % context, 2)
         generate_is_valid(hh, context, fields)
+        generate_calc_inequality_constraint(hh, context, fields)
         put(hh, VECTOR_CLASS_END % context, 2)
         put(hh, VECTOR_HH_POSTAMBLE % context, 1)
 
-    with open(os.path.join(cxx_dir, "%s.cc" % snake), 'w') as cc:
+    cxx_names.append(os.path.join(cxx_dir, "%s.cc" % snake))
+    with open(cxx_names[-1], 'w') as cc:
         print "generating %s" % cc.name
         put(cc, VECTOR_CC_PREAMBLE % context, 2)
         generate_indices_storage(cc, context, fields)
@@ -543,14 +588,14 @@ def generate_code(args):
         put(cc, VECTOR_CC_POSTAMBLE % context, 1)
 
     if args.lcmtype_dir:
-        with open(os.path.join(cxx_dir, "%s_translator.h" % snake),
-                  'w') as hh:
+        cxx_names.append(os.path.join(cxx_dir, "%s_translator.h" % snake))
+        with open(cxx_names[-1], 'w') as hh:
             put(hh, TRANSLATOR_HH_PREAMBLE % context, 2)
             put(hh, TRANSLATOR_CLASS_DECL % context, 2)
             put(hh, TRANSLATOR_HH_POSTAMBLE % context, 1)
 
-        with open(os.path.join(cxx_dir, "%s_translator.cc" % snake),
-                  'w') as cc:
+        cxx_names.append(os.path.join(cxx_dir, "%s_translator.cc" % snake))
+        with open(cxx_names[-1], 'w') as cc:
             print "generating %s" % cc.name
             put(cc, TRANSLATOR_CC_PREAMBLE % context, 2)
             generate_allocate_output_vector(cc, context, fields)
@@ -567,6 +612,10 @@ def generate_code(args):
                                                       field['doc']), 1)
             put(lcm, LCMTYPE_POSTAMBLE % context, 1)
 
+    subprocess.check_call([
+        clang_format_lib.get_clang_format_path(),
+        "--style=file", "-i"] + cxx_names)
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -576,19 +625,12 @@ def main():
         '--cxx-dir', help="output directory for cxx files", default=".")
     parser.add_argument(
         '--workspace', help="Drake WORKSPACE root.", required=True)
-    parser.add_argument(
-        '--namespace', help="::-delimited enclosing namespace",
-        default="drake")
     # By default, LCM output is disabled.
     parser.add_argument(
         '--lcmtype-dir', help="output directory for lcm file", default="")
     parser.add_argument(
-        '--title', help="title phrase, from which type names will be made")
-    parser.add_argument(
-        '--named_vector_file',
-        help="Protobuf description of vector, supersedes command-line fields")
-    parser.add_argument(
-        'fields', metavar='FIELD', nargs='*', help="field names for vector")
+        '--named_vector_file', metavar="FILE", required=True,
+        help="Protobuf description of vector")
     args = parser.parse_args()
     generate_code(args)
 

@@ -7,8 +7,8 @@
 #include <Eigen/Core>
 #include <Eigen/SparseCore>
 
+#include "drake/common/autodiff.h"
 #include "drake/common/drake_assert.h"
-#include "drake/common/eigen_autodiff_types.h"
 #include "drake/common/unused.h"
 #include "drake/math/autodiff.h"
 #include "drake/math/autodiff_gradient.h"
@@ -33,6 +33,7 @@ using drake::solvers::MatrixXDecisionVariable;
 using drake::solvers::MathematicalProgram;
 using drake::solvers::SolutionResult;
 
+/// @file
 /// NOTE: The contents of this class are for the most part direct ports of
 /// drake/systems/plants/@RigidBodyManipulator/inverseKinBackend.m from Matlab
 /// to C++; many methods and variables follow Matlab conventions and are

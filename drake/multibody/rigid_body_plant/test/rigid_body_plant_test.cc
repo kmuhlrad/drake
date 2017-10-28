@@ -6,9 +6,9 @@
 #include <Eigen/Geometry>
 #include <gtest/gtest.h>
 
-#include "drake/common/eigen_matrix_compare.h"
 #include "drake/common/eigen_types.h"
 #include "drake/common/find_resource.h"
+#include "drake/common/test_utilities/eigen_matrix_compare.h"
 #include "drake/math/roll_pitch_yaw.h"
 #include "drake/multibody/joints/prismatic_joint.h"
 #include "drake/multibody/joints/quaternion_floating_joint.h"
@@ -537,17 +537,17 @@ GTEST_TEST(rigid_body_plant_test, BasicTimeSteppingTest) {
   RigidBodyPlant<double> time_stepping_plant(move(tree_ptr), timestep);
 
   auto continuous_context = continuous_plant.AllocateContext();
-  continuous_plant.SetDefaults(continuous_context.get());
+  continuous_plant.SetDefaultContext(continuous_context.get());
 
   auto time_stepping_context = time_stepping_plant.AllocateContext();
-  time_stepping_plant.SetDefaults(time_stepping_context.get());
+  time_stepping_plant.SetDefaultContext(time_stepping_context.get());
 
   // Check that the time-stepping model has the same states as the continuous,
   // but as discrete state.
   EXPECT_TRUE(continuous_context->has_only_continuous_state());
   EXPECT_TRUE(time_stepping_context->has_only_discrete_state());
   EXPECT_EQ(continuous_context->get_continuous_state()->size(),
-            time_stepping_context->get_discrete_state(0)->size());
+            time_stepping_context->get_discrete_state(0).size());
 
   // Check that the dynamics of the time-stepping model match the
   // (backwards-)Euler approximation of the continuous time dynamics.
@@ -559,7 +559,7 @@ GTEST_TEST(rigid_body_plant_test, BasicTimeSteppingTest) {
 
   const VectorXd x = continuous_context->get_continuous_state()->CopyToVector();
   EXPECT_TRUE(CompareMatrices(
-      x, time_stepping_context->get_discrete_state(0)->CopyToVector()));
+      x, time_stepping_context->get_discrete_state(0).CopyToVector()));
 
   const VectorXd q = continuous_context->get_continuous_state()
                          ->get_generalized_position()
@@ -580,7 +580,7 @@ GTEST_TEST(rigid_body_plant_test, BasicTimeSteppingTest) {
   VectorXd xn(qn.rows() + vn.rows());
   xn << qn, vn;
 
-  EXPECT_TRUE(CompareMatrices(updates->get_vector(0)->CopyToVector(), xn));
+  EXPECT_TRUE(CompareMatrices(updates->get_vector(0).CopyToVector(), xn));
 }
 
 }  // namespace
