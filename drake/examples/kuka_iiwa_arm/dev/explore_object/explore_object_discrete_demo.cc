@@ -129,10 +129,10 @@ void RunExploreObjectDiscreteDemo() {
   // TODO(kmuhlrad): all of these locations need to be updated
   std::vector<Eigen::Vector3d> absolute_grasp_locations;
   // Eigen::Vector3d(0.86, -0.36, 0.13), 0.09, 0.05, 0.01
-  absolute_grasp_locations.push_back(Eigen::Vector3d(0.80, -0.03, 0.13));
-  absolute_grasp_locations.push_back(Eigen::Vector3d(0.80, -0.03, 0.09));
-  absolute_grasp_locations.push_back(Eigen::Vector3d(0.80, -0.03, 0.05));
-  absolute_grasp_locations.push_back(Eigen::Vector3d(0.80, -0.03, 0.01));
+  absolute_grasp_locations.push_back(Eigen::Vector3d(0.79, 0.0, 0.08));
+  absolute_grasp_locations.push_back(Eigen::Vector3d(0.79, 0.0, 0.03));
+  absolute_grasp_locations.push_back(Eigen::Vector3d(0.79, 0.0, -0.02));
+  // absolute_grasp_locations.push_back(Eigen::Vector3d(0.80, 0, 0.01));
 
   // Define the transformation to where the object will be sitting, relative to
   // the robot base.
@@ -142,7 +142,6 @@ void RunExploreObjectDiscreteDemo() {
   for (Eigen::Vector3d& absolute_grasp_loc: absolute_grasp_locations) {
       relative_grasp_location.translation() = absolute_grasp_loc + half_box_height;
       relative_grasp_location.linear().setIdentity();
-      relative_grasp_location.rotate(Eigen::AngleAxisd(0.25*M_PI, Eigen::Vector3d::UnitZ()));
       relative_grasp_locations.push_back(relative_grasp_location);
   }
 
