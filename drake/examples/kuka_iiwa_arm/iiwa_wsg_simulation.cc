@@ -28,6 +28,7 @@
 #include "drake/multibody/parsers/urdf_parser.h"
 #include "drake/multibody/rigid_body_plant/drake_visualizer.h"
 #include "drake/multibody/rigid_body_plant/rigid_body_plant.h"
+#include "drake/systems/analysis/runge_kutta2_integrator.h"
 #include "drake/systems/analysis/simulator.h"
 #include "drake/systems/framework/diagram.h"
 #include "drake/systems/framework/diagram_builder.h"
@@ -81,7 +82,7 @@ std::unique_ptr<RigidBodyPlant<T>> BuildCombinedPlant(
                            "block_for_pick_and_place.urdf");
   tree_builder->StoreModel(
       "wsg",
-      "drake/manipulation/models/wsg_50_description/sdf/schunk_wsg_50.sdf");
+      "drake/manipulation/models/wsg_50_description/sdf/schunk_wsg_50_ball_contact.sdf");
 
   // Build a world with two fixed tables.  A box is placed one on
   // table, and the iiwa arm is fixed to the other.
@@ -110,12 +111,13 @@ std::unique_ptr<RigidBodyPlant<T>> BuildCombinedPlant(
   // Start the box slightly above the table.  If we place it at
   // the table top exactly, it may start colliding the table (which is
   // not good, as it will likely shoot off into space).
-  const Eigen::Vector3d kBoxBase(1 + -0.43, -0.65, kTableTopZInWorld + 0.1);
+  //1 + -0.43, -0.65, kTableTopZInWorld + 0.1
+  const Eigen::Vector3d kBoxBase(0.243716 + 1 + -0.43, 0.625087 + -0.65, kTableTopZInWorld + 0.1);
 
   int id = tree_builder->AddFixedModelInstance("iiwa", kRobotBase);
   *iiwa_instance = tree_builder->get_model_info_for_instance(id);
   id = tree_builder->AddFloatingModelInstance("box", kBoxBase,
-                                              Vector3<double>(0, 0, 1));
+                                              Vector3<double>(0, 0, 0));
   *box_instance = tree_builder->get_model_info_for_instance(id);
   id = tree_builder->AddModelInstanceToFrame(
       "wsg", tree_builder->tree().findFrame("iiwa_frame_ee"),
@@ -239,6 +241,7 @@ int DoMain() {
 
   lcm.StartReceiveThread();
   simulator.Initialize();
+  simulator.reset_integrator<systems::RungeKutta2Integrator<double>>(*sys, 1e-3, (&simulator)->get_mutable_context());
   simulator.set_publish_every_time_step(false);
   simulator.StepTo(FLAGS_simulation_sec);
 

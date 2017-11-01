@@ -83,7 +83,7 @@ const double kTableTopZInWorld = 0.736 + 0.057 / 2;
 // The intention is to center the robot on the table.
 // TODO(sam.creasey) fix this
 const Eigen::Vector3d kRobotBase(0, 0, kTableTopZInWorld);
-const Eigen::Vector3d kTableBase(0.243716, 0.625087, 0.);
+const Eigen::Vector3d kTableBase(0, 0, 0);
 
 struct Object {
   std::string model_name;
