@@ -65,6 +65,7 @@ git
 graphviz
 libblas-dev
 libboost-all-dev
+libccd-dev
 libexpat1-dev
 libfreetype6-dev
 libglib2.0-dev
@@ -76,6 +77,7 @@ liblapack-dev
 liblz4-dev
 libnetcdf-cxx-legacy-dev
 libnetcdf-dev
+libnlopt-dev
 libogg-dev
 libpng-dev
 libprotobuf-dev

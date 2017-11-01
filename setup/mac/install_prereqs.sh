@@ -41,8 +41,10 @@ glew
 glib
 graphviz
 ipopt
+libccd
 libyaml
 lz4
+nlopt
 numpy
 patchutils
 pkg-config
