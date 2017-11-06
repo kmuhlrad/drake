@@ -7,6 +7,7 @@
 #include <list>
 #include <memory>
 
+#include <gflags/gflags.h>
 #include <lcm/lcm-cpp.hpp>
 #include "bot_core/robot_state_t.hpp"
 
@@ -20,6 +21,14 @@
 #include "drake/lcmt_schunk_wsg_status.hpp"
 #include "drake/manipulation/planner/constraint_relaxing_ik.h"
 #include "drake/util/lcmUtil.h"
+
+
+DEFINE_double(object_x, 0.0, "Relative x-coordinate of the object to grasp.");
+DEFINE_double(object_y, 0.0, "Relative y-coordinate of the object to grasp.");
+DEFINE_double(object_z, 0.0, "Relative z-coordinate of the object to grasp.");
+DEFINE_double(object_height, 0.0, "Height of the object to grasp.");
+DEFINE_int32(num_grasp_points, 0, 
+  "Number of evenly spaced points on the object to grasp.");
 
 namespace drake {
 namespace examples {
@@ -123,16 +132,34 @@ void RunExploreObjectDiscreteDemo() {
         lcm.publish("SCHUNK_WSG_COMMAND", msg);
       });
 
-  // This needs to match the object model file in iiwa_wsg_simulation.cc
-  Eigen::Vector3d half_box_height(0, 0, 0.1);
 
-  // TODO(kmuhlrad): all of these locations need to be updated
+  /////// HARDCODED THINGS
+  // This needs to match the object model file in iiwa_wsg_simulation.cc
+  // Eigen::Vector3d half_box_height(0, 0, 0.1);
+
+
+  // // TODO(kmuhlrad): all of these locations need to be updated
+  // std::vector<Eigen::Vector3d> absolute_grasp_locations;
+  // // Eigen::Vector3d(0.86, -0.36, 0.13), 0.09, 0.05, 0.01
+  // absolute_grasp_locations.push_back(Eigen::Vector3d(0.79, 0.0, 0.08));
+  // absolute_grasp_locations.push_back(Eigen::Vector3d(0.79, 0.0, 0.03));
+  // absolute_grasp_locations.push_back(Eigen::Vector3d(0.79, 0.0, -0.02));
+  // // absolute_grasp_locations.push_back(Eigen::Vector3d(0.80, 0, 0.01));
+
+  ///////
+
+  Eigen::Vector3d half_box_height(0, 0, FLAGS_object_height/2);
+  Eigen::Vector3d object_position(FLAGS_object_x, FLAGS_object_y, FLAGS_object_z);
+
+  double grasp_point_interval = (FLAGS_object_height - 0.03)/(FLAGS_num_grasp_points + 1);
   std::vector<Eigen::Vector3d> absolute_grasp_locations;
-  // Eigen::Vector3d(0.86, -0.36, 0.13), 0.09, 0.05, 0.01
-  absolute_grasp_locations.push_back(Eigen::Vector3d(0.79, 0.0, 0.08));
-  absolute_grasp_locations.push_back(Eigen::Vector3d(0.79, 0.0, 0.03));
-  absolute_grasp_locations.push_back(Eigen::Vector3d(0.79, 0.0, -0.02));
-  // absolute_grasp_locations.push_back(Eigen::Vector3d(0.80, 0, 0.01));
+
+  for (int i = 0; i < FLAGS_num_grasp_points; i++) {
+    absolute_grasp_locations.push_back(
+      Eigen::Vector3d(FLAGS_object_x - 0.01, 
+      FLAGS_object_y, 
+      FLAGS_object_height/2 - (i+1)*grasp_point_interval));
+  }
 
   // Define the transformation to where the object will be sitting, relative to
   // the robot base.
@@ -177,7 +204,8 @@ void RunExploreObjectDiscreteDemo() {
 }  // namespace examples
 }  // namespace drake
 
-int main() {
+int main(int argc, char* argv[]) {
+  gflags::ParseCommandLineFlags(&argc, &argv, true);
   drake::examples::kuka_iiwa_arm::explore_object::RunExploreObjectDiscreteDemo();
   return 0;
 }

@@ -92,6 +92,7 @@ drake_cc_binary(
         "//drake/examples/kuka_iiwa_arm:iiwa_lcm",
         "//drake/examples/kuka_iiwa_arm/pick_and_place",
         "//drake/util:lcm_util",
+	"@com_github_gflags_gflags//:gflags",
     ],
 )
 
