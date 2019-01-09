@@ -36,7 +36,8 @@ int do_main(int argc, char* argv[]) {
 
   // Create the "manipulation station".
   auto station = builder.AddSystem<ManipulationStation>();
-  station->SetupDefaultStation();
+  //station->SetupDefaultStation();
+  station->SetupClutterClearingStation();
   station->Finalize();
 
   geometry::ConnectDrakeVisualizer(&builder, station->get_mutable_scene_graph(),
