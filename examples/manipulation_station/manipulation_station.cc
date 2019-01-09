@@ -224,8 +224,92 @@ void ManipulationStation<T>::SetupClutterClearingStation(
         "object_5");
     parser.AddModelFromFile(
         FindResourceOrThrow(
-            "drake/examples/manipulation_station/models/cracker_box.sdf"),
-            "cracker_box");
+            "drake/examples/manipulation_station/models/ycb_dope_objects/cracker_box.sdf"),
+        "cracker_box");
+  }
+
+  // Add default cameras.
+  {
+    std::map<std::string, RigidTransform<double>> camera_poses;
+    internal::get_camera_poses(&camera_poses);
+    // Typical D415 intrinsics for 848 x 480 resolution, note that rgb and
+    // depth are slightly different. And we are not able to model that at the
+    // moment.
+    // RGB:
+    // - w: 848, h: 480, fx: 616.285, fy: 615.778, ppx: 405.418, ppy: 232.864
+    // DEPTH:
+    // - w: 848, h: 480, fx: 645.138, fy: 645.138, ppx: 420.789, ppy: 239.13
+    // For this camera, we are going to assume that fx = fy, and we can compute
+    // fov_y by: fy = height / 2 / tan(fov_y / 2)
+    const double kFocalY = 645.;
+    const int kHeight = 480;
+    const int kWidth = 848;
+    const double fov_y = std::atan(kHeight / 2. / kFocalY) * 2;
+    geometry::dev::render::DepthCameraProperties camera_properties(
+        kWidth, kHeight, fov_y, geometry::dev::render::Fidelity::kLow, 0.1,
+        2.0);
+    for (const auto& camera_pair : camera_poses) {
+      RegisterRgbdCamera(camera_pair.first, plant_->world_frame(),
+                         camera_pair.second, camera_properties);
+    }
+  }
+
+  AddDefaultIiwa(collision_model);
+  AddDefaultWsg();
+}
+
+template <typename T>
+void ManipulationStation<T>::SetupDopeClutterClearingStation(
+    const IiwaCollisionModel collision_model) {
+  DRAKE_DEMAND(setup_ == Setup::kNone);
+  setup_ = Setup::kClutterClearing;
+
+  // Add the bin.
+  {
+    const std::string sdf_path = FindResourceOrThrow(
+        "drake/examples/manipulation_station/models/bin.sdf");
+
+    Isometry3<double> X_WC =
+        RigidTransform<double>(RotationMatrix<double>::MakeZRotation(M_PI_2),
+                               Vector3d(-0.145, -0.63, 0.235))
+            .GetAsIsometry3();
+    internal::AddAndWeldModelFrom(sdf_path, "bin1", plant_->world_frame(),
+                                  "bin_base", X_WC, plant_);
+
+    X_WC = RigidTransform<double>(RotationMatrix<double>::MakeZRotation(M_PI),
+                                  Vector3d(0.5, -0.1, 0.235))
+        .GetAsIsometry3();
+    internal::AddAndWeldModelFrom(sdf_path, "bin2", plant_->world_frame(),
+                                  "bin_base", X_WC, plant_);
+  }
+
+  // Add the objects.
+  {
+    multibody::Parser parser(plant_);
+    parser.AddModelFromFile(
+        FindResourceOrThrow(
+            "drake/examples/manipulation_station/models/061_foam_brick.sdf"),
+        "object_1");
+    parser.AddModelFromFile(
+        FindResourceOrThrow(
+            "drake/examples/manipulation_station/models/cylinder.sdf"),
+        "object_2");
+    parser.AddModelFromFile(
+        FindResourceOrThrow(
+            "drake/examples/manipulation_station/models/thin_cylinder.sdf"),
+        "object_3");
+    parser.AddModelFromFile(
+        FindResourceOrThrow(
+            "drake/examples/manipulation_station/models/thin_box.sdf"),
+        "object_4");
+    parser.AddModelFromFile(
+        FindResourceOrThrow(
+            "drake/examples/manipulation_station/models/sphere.sdf"),
+        "object_5");
+    parser.AddModelFromFile(
+        FindResourceOrThrow(
+            "drake/examples/manipulation_station/models/ycb_dope_objects/cracker_box.sdf"),
+        "cracker_box");
   }
 
   // Add default cameras.
