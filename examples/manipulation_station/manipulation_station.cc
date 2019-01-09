@@ -222,10 +222,10 @@ void ManipulationStation<T>::SetupClutterClearingStation(
         FindResourceOrThrow(
             "drake/examples/manipulation_station/models/sphere.sdf"),
         "object_5");
-    parser.AddModelFromFile(
-        FindResourceOrThrow(
-            "drake/examples/manipulation_station/models/ycb_dope_objects/cracker_box.sdf"),
-        "cracker_box");
+//    parser.AddModelFromFile(
+//        FindResourceOrThrow(
+//            "drake/examples/manipulation_station/models/ycb_dope_objects/cracker_box.sdf"),
+//        "cracker_box");
   }
 
   // Add default cameras.
@@ -262,7 +262,7 @@ template <typename T>
 void ManipulationStation<T>::SetupDopeClutterClearingStation(
     const IiwaCollisionModel collision_model) {
   DRAKE_DEMAND(setup_ == Setup::kNone);
-  setup_ = Setup::kClutterClearing;
+  setup_ = Setup::kDopeClutterClearing;
 
   // Add the bin.
   {
@@ -288,31 +288,12 @@ void ManipulationStation<T>::SetupDopeClutterClearingStation(
     multibody::Parser parser(plant_);
     parser.AddModelFromFile(
         FindResourceOrThrow(
-            "drake/examples/manipulation_station/models/061_foam_brick.sdf"),
-        "object_1");
-    parser.AddModelFromFile(
-        FindResourceOrThrow(
-            "drake/examples/manipulation_station/models/cylinder.sdf"),
-        "object_2");
-    parser.AddModelFromFile(
-        FindResourceOrThrow(
-            "drake/examples/manipulation_station/models/thin_cylinder.sdf"),
-        "object_3");
-    parser.AddModelFromFile(
-        FindResourceOrThrow(
-            "drake/examples/manipulation_station/models/thin_box.sdf"),
-        "object_4");
-    parser.AddModelFromFile(
-        FindResourceOrThrow(
-            "drake/examples/manipulation_station/models/sphere.sdf"),
-        "object_5");
-    parser.AddModelFromFile(
-        FindResourceOrThrow(
             "drake/examples/manipulation_station/models/ycb_dope_objects/cracker_box.sdf"),
         "cracker_box");
+    // TODO(kmuhlrad): add more YCB objects
   }
 
-  // Add default cameras.
+  // Add default camera.
   {
     std::map<std::string, RigidTransform<double>> camera_poses;
     internal::get_camera_poses(&camera_poses);
@@ -332,10 +313,11 @@ void ManipulationStation<T>::SetupDopeClutterClearingStation(
     geometry::dev::render::DepthCameraProperties camera_properties(
         kWidth, kHeight, fov_y, geometry::dev::render::Fidelity::kLow, 0.1,
         2.0);
-    for (const auto& camera_pair : camera_poses) {
-      RegisterRgbdCamera(camera_pair.first, plant_->world_frame(),
-                         camera_pair.second, camera_properties);
-    }
+    RigidTransform<double> transform = RigidTransform<double>(
+        RollPitchYaw<double>(0.0438918, 1.03776, -3.13612),
+        Vector3d(0.786905, -0.0284378, 2.04287));
+    RegisterRgbdCamera("0", plant_->world_frame(),
+                       transform, camera_properties);
   }
 
   AddDefaultIiwa(collision_model);
@@ -496,8 +478,14 @@ void ManipulationStation<T>::SetDefaultState(
       X_WObject.set_rotation(RotationMatrix<T>::Identity());
       set_object_pose("object_5", X_WObject);
 
-      // Place the sphere.
-      X_WObject.set_translation(Eigen::Vector3d(-0.3, -0.4, 0.4));
+      break;
+    case Setup::kDopeClutterClearing:
+      // Set the initial positions of the IIWA to a configuration right above
+      // the picking bin.
+      q0_iiwa << -1.57, 0.1, 0, -1.2, 0, 1.6, 0;
+
+      // Place the cracker box.
+      X_WObject.set_translation(Eigen::Vector3d(-0.3, -0.45, 0.3));
       X_WObject.set_rotation(RotationMatrix<T>::Identity());
       set_object_pose("cracker_box", X_WObject);
 
