@@ -314,8 +314,8 @@ void ManipulationStation<T>::SetupDopeClutterClearingStation(
         kWidth, kHeight, fov_y, geometry::dev::render::Fidelity::kLow, 0.1,
         2.0);
     RigidTransform<double> transform = RigidTransform<double>(
-        RollPitchYaw<double>(0.0438918, 1.03776, -3.13612),
-        Vector3d(0.786905, -0.0284378, 2.04287));
+        RollPitchYaw<double>(-0.3, 0.8, 1.5),
+        Vector3d(0, -1.5, 1.5));
     RegisterRgbdCamera("0", plant_->world_frame(),
                        transform, camera_properties);
   }
@@ -485,7 +485,7 @@ void ManipulationStation<T>::SetDefaultState(
       q0_iiwa << -1.57, 0.1, 0, -1.2, 0, 1.6, 0;
 
       // Place the cracker box.
-      X_WObject.set_translation(Eigen::Vector3d(-0.3, -0.45, 0.3));
+      X_WObject.set_translation(Eigen::Vector3d(-0.3, -0.60, 0.25));
       X_WObject.set_rotation(RotationMatrix<T>::Identity());
       set_object_pose("cracker_box", X_WObject);
 
