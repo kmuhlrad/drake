@@ -288,8 +288,18 @@ void ManipulationStation<T>::SetupDopeClutterClearingStation(
     multibody::Parser parser(plant_);
     parser.AddModelFromFile(
         FindResourceOrThrow(
-            "drake/examples/manipulation_station/models/ycb_dope_objects/cracker_box.sdf"),
+            "drake/examples/manipulation_station/models/aligned_ycb_objects/cracker_box.sdf"),
         "cracker_box");
+
+    parser.AddModelFromFile(
+        FindResourceOrThrow(
+            "drake/examples/manipulation_station/models/aligned_ycb_objects/soup_can.sdf"),
+        "soup_can");
+
+    parser.AddModelFromFile(
+        FindResourceOrThrow(
+            "drake/examples/manipulation_station/models/aligned_ycb_objects/mustard_bottle.sdf"),
+        "mustard_bottle");
     // TODO(kmuhlrad): add more YCB objects
   }
 
@@ -486,8 +496,21 @@ void ManipulationStation<T>::SetDefaultState(
 
       // Place the cracker box.
       X_WObject.set_translation(Eigen::Vector3d(-0.3, -0.60, 0.25));
-      X_WObject.set_rotation(RotationMatrix<T>::Identity());
+      X_WObject.set_rotation(RotationMatrix<double>(
+          RollPitchYaw<double>(0, 0, 1.8)));
       set_object_pose("cracker_box", X_WObject);
+
+      // Place the soup can.
+      X_WObject.set_translation(Eigen::Vector3d(-0.1, -0.55, 0.25));
+      X_WObject.set_rotation(RotationMatrix<double>(
+          RollPitchYaw<double>(0, 0, 1.8)));
+      set_object_pose("soup_can", X_WObject);
+
+      // Place the mustard bottle.
+      X_WObject.set_translation(Eigen::Vector3d(0.05, -0.65, 0.25));
+      X_WObject.set_rotation(RotationMatrix<double>(
+          RollPitchYaw<double>(0, 0, 1.57)));
+      set_object_pose("mustard_bottle", X_WObject);
 
       break;
   }
