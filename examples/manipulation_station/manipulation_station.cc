@@ -300,6 +300,21 @@ void ManipulationStation<T>::SetupDopeClutterClearingStation(
         FindResourceOrThrow(
             "drake/examples/manipulation_station/models/aligned_ycb_objects/mustard_bottle.sdf"),
         "mustard_bottle");
+
+    parser.AddModelFromFile(
+        FindResourceOrThrow(
+            "drake/examples/manipulation_station/models/aligned_ycb_objects/gelatin_box.sdf"),
+        "gelatin_box");
+
+    parser.AddModelFromFile(
+        FindResourceOrThrow(
+            "drake/examples/manipulation_station/models/aligned_ycb_objects/potted_meat_can.sdf"),
+        "potted_meat_can");
+
+    parser.AddModelFromFile(
+        FindResourceOrThrow(
+            "drake/examples/manipulation_station/models/aligned_ycb_objects/sugar_box.sdf"),
+        "sugar_box");
     // TODO(kmuhlrad): add more YCB objects
   }
 
@@ -501,16 +516,34 @@ void ManipulationStation<T>::SetDefaultState(
       set_object_pose("cracker_box", X_WObject);
 
       // Place the soup can.
-      X_WObject.set_translation(Eigen::Vector3d(-0.1, -0.55, 0.25));
+      X_WObject.set_translation(Eigen::Vector3d(-0.03, -0.6, 0.25));
       X_WObject.set_rotation(RotationMatrix<double>(
           RollPitchYaw<double>(0, 0, 1.8)));
       set_object_pose("soup_can", X_WObject);
 
       // Place the mustard bottle.
-      X_WObject.set_translation(Eigen::Vector3d(0.05, -0.65, 0.25));
+      X_WObject.set_translation(Eigen::Vector3d(0.05, -0.67, 0.25));
       X_WObject.set_rotation(RotationMatrix<double>(
           RollPitchYaw<double>(0, 0, 1.57)));
       set_object_pose("mustard_bottle", X_WObject);
+
+      // Place the gelatin box.
+      X_WObject.set_translation(Eigen::Vector3d(-0.15, -0.62, 0.35));
+      X_WObject.set_rotation(RotationMatrix<double>(
+          RollPitchYaw<double>(0, 0, 1.2)));
+      set_object_pose("gelatin_box", X_WObject);
+
+      // Place the potted meat can.
+      X_WObject.set_translation(Eigen::Vector3d(-0.15, -0.62, 0.25));
+      X_WObject.set_rotation(RotationMatrix<double>(
+          RollPitchYaw<double>(0, 0, 1.57)));
+      set_object_pose("potted_meat_can", X_WObject);
+
+      // Place the sugar box.
+      X_WObject.set_translation(Eigen::Vector3d(0.04, -0.53, 0.25));
+      X_WObject.set_rotation(RotationMatrix<double>(
+          RollPitchYaw<double>(0, 0, 1.57)));
+      set_object_pose("sugar_box", X_WObject);
 
       break;
   }
