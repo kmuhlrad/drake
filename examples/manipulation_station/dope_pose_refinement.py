@@ -3,8 +3,8 @@ import numpy as np
 import yaml
 
 import meshcat.transformations as tf
-from iterative_closest_point import RunICP
-from visualization_utils import ThresholdArray
+# from iterative_closest_point import RunICP
+# from visualization_utils import ThresholdArray
 
 from pydrake.util.eigen_geometry import Isometry3
 from pydrake.systems.analysis import Simulator
@@ -21,6 +21,7 @@ from pydrake.systems.framework import AbstractValue, LeafSystem
 from pydrake.common.eigen_geometry import Isometry3, AngleAxis
 from pydrake.systems.sensors import CameraInfo, ImageRgba8U
 import pydrake.perception as mut
+from pydrake.systems.sensors import PixelType
 
 import meshcat.transformations as tf
 
@@ -1119,9 +1120,12 @@ def main(config_file, model_file, dope_pose_file, object_name, viz=True):
     station.SetupDopeClutterClearingStation()
     station.Finalize()
 
+    # pose_refinement = builder.AddSystem(PoseRefinement(
+    #     config_file, model_file, viz, segmentation_functions[object_name],
+    #     alignment_functions[object_name]))
+
     pose_refinement = builder.AddSystem(PoseRefinement(
-        config_file, model_file, viz, segmentation_functions[object_name],
-        alignment_functions[object_name]))
+            config_file, model_file, viz))
 
     left_camera_info = pose_refinement.camera_configs["left_camera_info"]
     left_name_prefix = \
@@ -1129,7 +1133,7 @@ def main(config_file, model_file, dope_pose_file, object_name, viz=True):
 
     # TODO(kmuhlrad): add python bindings for this
     dut = builder.AddSystem(
-        mut.DepthImageToPointCloud(camera_info=left_camera_info), kDepth16U)
+        mut.DepthImageToPointCloud(left_camera_info, PixelType.kDepth16U))
 
     builder.Connect(station.GetOutputPort(left_name_prefix + "_depth_image"),
                     dut.depth_image_input_port())
@@ -1161,13 +1165,9 @@ if __name__ == "__main__":
         required=True,
         help="The path to a .yml camera config file")
     parser.add_argument(
-        "--point_cloud_file",
+        "--model_file",
         required=True,
-        help="The path to a .txt xyz point cloud file")
-    parser.add_argument(
-        "--color_file",
-        required=True,
-        help="The path to a .txt rgb point cloud color file")
+        help="The path to a .npy model file")
     parser.add_argument(
         "--dope_pose_file",
         required=True,
@@ -1183,5 +1183,5 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     print main(
-        args.config_file, args.point_cloud_file, args.color_file,
-        args.dope_pose_file, args.object_name, args.viz)
+        args.config_file, args.model_file, args.dope_pose_file,
+        args.object_name, args.viz)
