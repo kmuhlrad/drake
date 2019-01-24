@@ -58,8 +58,6 @@ void DoConvert(
     const float scale,
     PointCloud* output) {
   if (exact_base_fields) {
-    std::cout << "output: " << output->fields().base_fields() << std::endl;
-    std::cout << "exact: " << *exact_base_fields << std::endl;
     DRAKE_THROW_UNLESS(output->fields().base_fields() == *exact_base_fields);
   }
 
