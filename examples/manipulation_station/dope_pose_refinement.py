@@ -58,7 +58,7 @@ class PoseRefinement(LeafSystem):
         self.point_cloud_port = self._DeclareAbstractInputPort(
             "point_cloud", AbstractValue.Make(mut.PointCloud()))
         self.init_pose_port = self._DeclareAbstractInputPort(
-            "X_WObject_guess", AbstractValue.Make(Isometry3()))
+            "X_WObject_guess", AbstractValue.Make(Isometry3))
 
         self._DeclareAbstractOutputPort("X_WObject_refined",
                                         lambda: AbstractValue.Make(
@@ -79,12 +79,13 @@ class PoseRefinement(LeafSystem):
                 config = yaml.load(stream)
                 self.camera_configs = {}
                 for camera in config:
-                    serial_no, X_WCamera, X_CameraDepth = \
+                    serial_no, X_WCamera, X_CameraDepth, camera_info = \
                         self._ParseCameraConfig(config[camera])
                     self.camera_configs[camera + "_serial"] = str(serial_no)
                     self.camera_configs[camera + "_pose_world"] = X_WCamera
                     self.camera_configs[camera + "_pose_internal"] = \
                         X_CameraDepth
+                    self.camera_configs[camera + "_info"] = camera_info
             except yaml.YAMLError as exc:
                 print "could not parse config file"
                 print exc
@@ -110,7 +111,19 @@ class PoseRefinement(LeafSystem):
                                  internal_transform["y"],
                                  internal_transform["z"]])
 
-        return serial_no, X_WCamera, X_CameraDepth
+        # construct the camera info
+        camera_info_data = camera_config["camera_info"]
+        if "fov_y" in camera_info_data:
+            camera_info = CameraInfo(camera_info_data["width"],
+                                     camera_info_data["height"],
+                                     camera_info_data["fov_y"])
+        else:
+            camera_info = CameraInfo(
+                camera_info_data["width"], camera_info_data["height"],
+                camera_info_data["focal_x"], camera_info_data["focal_y"],
+                camera_info_data["center_x"], camera_info_data["center_y"])
+
+        return serial_no, X_WCamera, X_CameraDepth, camera_info
 
     def _TransformPointCloud(self, point_cloud, colors):
         # transform the point cloud according to the config file
@@ -181,7 +194,7 @@ class PoseRefinement(LeafSystem):
                 model, init_pose)
 
         # TODO(kmuhlrad): fill in default alignment function
-        return np.eye(4)
+        return init_pose
 
     def _DoCalcOutput(self, context, output):
         init_pose = self.EvalAbstractInput(
@@ -189,9 +202,8 @@ class PoseRefinement(LeafSystem):
         point_cloud = self.EvalAbstractInput(
             context, self.point_cloud_port.get_index()).get_value()
 
-        # TODO(kmuhlrad): confirm python bindings exist
         scene_points, scene_colors = self._TransformPointCloud(
-            point_cloud.xyzs().T, point_cloud.rgbs().T)
+            point_cloud.xyzs(), point_cloud.rgbs())
 
         segmented_scene_points, segmented_scene_colors = \
             self.SegmentScene(scene_points, scene_colors, self.model, init_pose)
@@ -208,7 +220,7 @@ class PoseRefinement(LeafSystem):
             segmented_scene_points, segmented_scene_colors,
             self.model, init_pose)
 
-        output.get_mutable_value().set_matrix(X_WObject_refined)
+        output.get_mutable_value().set_matrix(X_WObject_refined.matrix())
 
 
 def SegmentCrackerBoxByDopePose(scene_points, scene_colors):
@@ -1115,7 +1127,6 @@ def main(config_file, model_file, dope_pose_file, object_name, viz=True):
 
     builder = DiagramBuilder()
 
-    # TODO(kmuhlrad): add python bindings for this
     station = builder.AddSystem(ManipulationStation())
     station.SetupDopeClutterClearingStation()
     station.Finalize()
@@ -1131,7 +1142,6 @@ def main(config_file, model_file, dope_pose_file, object_name, viz=True):
     left_name_prefix = \
         "camera_" + pose_refinement.camera_configs["left_camera_serial"]
 
-    # TODO(kmuhlrad): add python bindings for this
     dut = builder.AddSystem(
         mut.DepthImageToPointCloud(left_camera_info, PixelType.kDepth16U))
 
@@ -1152,8 +1162,8 @@ def main(config_file, model_file, dope_pose_file, object_name, viz=True):
     context = diagram.GetMutableSubsystemContext(
         pose_refinement, simulator.get_mutable_context())
 
-    context.FixInputPort(
-        pose_refinement.GetInputPort("X_WObject_guess").get_index(), dope_pose)
+    context.FixInputPort(pose_refinement.GetInputPort(
+        "X_WObject_guess").get_index(), AbstractValue.Make(dope_pose))
 
     return pose_refinement.GetOutputPort("X_WObject_refined").Eval(context)
 
