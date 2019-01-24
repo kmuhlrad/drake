@@ -2,8 +2,7 @@ import argparse
 import numpy as np
 import yaml
 
-import meshcat.transformations as tf
-# from iterative_closest_point import RunICP
+from iterative_closest_point import RunICP
 # from visualization_utils import ThresholdArray
 
 from pydrake.util.eigen_geometry import Isometry3
@@ -14,21 +13,21 @@ from pydrake.systems.framework import (AbstractValue, BasicVector,
 from pydrake.examples.manipulation_station import (
     ManipulationStation, ManipulationStationHardwareInterface)
 
-import numpy as np
-import yaml
-
 from pydrake.systems.framework import AbstractValue, LeafSystem
-from pydrake.common.eigen_geometry import Isometry3, AngleAxis
-from pydrake.systems.sensors import CameraInfo, ImageRgba8U
+from pydrake.common.eigen_geometry import Isometry3
+from pydrake.systems.sensors import CameraInfo
 import pydrake.perception as mut
 from pydrake.systems.sensors import PixelType
+
+from PIL import Image
 
 import meshcat.transformations as tf
 
 class PoseRefinement(LeafSystem):
 
-    def __init__(self, config_file, model_file, viz=False, segment_scene_function=None,
-                 get_pose_function=None):
+    def __init__(self, config_file, model_points_file, model_image_file,
+                 segment_scene_function=None, get_pose_function=None,
+                 viz=False):
         """
         A system that takes in a point cloud, an initial pose guess, and an
         object model and calculates a refined pose of the object. The user can
@@ -67,7 +66,8 @@ class PoseRefinement(LeafSystem):
 
         self.segment_scene_function = segment_scene_function
         self.get_pose_function = get_pose_function
-        self.model = np.load(model_file)
+        self.model = np.load(model_points_file)
+        self.model_image = Image.open(model_image_file)
 
         self._LoadConfigFile(config_file)
 
@@ -96,6 +96,7 @@ class PoseRefinement(LeafSystem):
 
         # construct the transformation matrix
         world_transform = camera_config["world_transform"]
+        # TODO(kmuhlrad): change this to drake
         X_WCamera = tf.euler_matrix(world_transform["roll"],
                                     world_transform["pitch"],
                                     world_transform["yaw"])
@@ -147,7 +148,47 @@ class PoseRefinement(LeafSystem):
 
         return point_cloud_transformed[:3, :].T, filtered_colors.T
 
-    def SegmentScene(self, scene_points, scene_colors, model, init_pose):
+    def _ThresholdArray(self, arr, min_val, max_val):
+        """
+        Finds where the values of arr are between min_val and max_val inclusive.
+
+        @param arr An (N, ) numpy array containing number values.
+        @param min_val number. The minimum value threshold.
+        @param max_val number. The maximum value threshold.
+
+        @return An (M, ) numpy array of the integer indices in arr with values
+            that are between min_val and max_val.
+        """
+        return np.where(
+            abs(arr - (max_val + min_val) / 2.) < (max_val - min_val) / 2.)[0]
+
+    def _ReadRgbValues(self, image):
+        pix = image.load()
+
+        average_r = 0
+        average_g = 0
+        average_b = 0
+
+        colored_pixels = 0
+        black_threshold = 0
+
+        for x in range(image.size[0]):
+            for y in range(image.size[1]):
+                r, g, b = pix[x, y]
+                if r > black_threshold and g > black_threshold and b > black_threshold:
+                    average_r += r
+                    average_g += g
+                    average_b += b
+                    colored_pixels += 1
+
+        average_r /= float(colored_pixels)
+        average_g /= float(colored_pixels)
+        average_b /= float(colored_pixels)
+
+        return average_r, average_g, average_b
+
+    def SegmentScene(
+            self, scene_points, scene_colors, model, model_image, init_pose):
         """
         Returns a subset of the scene point cloud representing the segmentation
         of the object of interest.
@@ -165,10 +206,60 @@ class PoseRefinement(LeafSystem):
         """
         if self.segment_scene_function:
             return self.segment_scene_function(
-                scene_points, scene_colors, model, init_pose)
+                scene_points, scene_colors, model, model_image, init_pose)
 
-        # TODO(kmuhlrad): fill in default segmentation function
-        return scene_points, scene_colors
+        # Filter by area around initial pose guess
+        max_delta_x = np.abs(np.max(model[:, 0]) - np.min(model[:, 0]))
+        max_delta_y = np.abs(np.max(model[:, 1]) - np.min(model[:, 1]))
+        max_delta_z = np.abs(np.max(model[:, 2]) - np.min(model[:, 2]))
+
+        max_delta = np.max([max_delta_x, max_delta_y, max_delta_z])
+
+        init_x = init_pose.matrix()[0, 3]
+        init_y = init_pose.matrix()[1, 3]
+        init_z = init_pose.matrix()[2, 3]
+
+        x_min = init_x - max_delta
+        x_max = init_x + max_delta
+
+        y_min = init_y - max_delta
+        y_max = init_y + max_delta
+
+        z_min = init_z - max_delta
+        z_max = init_z + max_delta
+
+        x_indices = self._ThresholdArray(scene_points[:, 0], x_min, x_max)
+        y_indices = self._ThresholdArray(scene_points[:, 1], y_min, y_max)
+        z_indices = self._ThresholdArray(scene_points[:, 2], z_min, z_max)
+
+        indices = reduce(np.intersect1d, (x_indices, y_indices, z_indices))
+
+        segmented_points = scene_points[indices, :]
+        segmented_colors = scene_colors[indices, :]
+
+        # Filter by average (r, g, b) value in the model texture image
+        r_avg, g_avg, b_avg = self._ReadRgbValues(model_image)
+        color_delta = 0.2 * 255
+
+        r_min = r_avg - color_delta
+        r_max = r_avg + color_delta
+
+        g_min = g_avg - color_delta
+        g_max = g_avg + color_delta
+
+        b_min = b_avg - color_delta
+        b_max = b_avg + color_delta
+
+        r_indices = self._ThresholdArray(segmented_colors[:, 0], r_min, r_max)
+        g_indices = self._ThresholdArray(segmented_colors[:, 1], g_min, g_max)
+        b_indices = self._ThresholdArray(segmented_colors[:, 2], b_min, b_max)
+
+        indices = reduce(np.intersect1d, (r_indices, g_indices, b_indices))
+
+        segmented_points = segmented_points[indices, :]
+        segmented_colors = segmented_colors[indices, :]
+
+        return segmented_points, segmented_colors
 
     def GetPose(self, segmented_scene_points, segmented_scene_colors,
                 model, init_pose):
@@ -188,13 +279,17 @@ class PoseRefinement(LeafSystem):
             default is the identity matrix if a get_pose_function is not
             supplied.
         """
+
         if self.get_pose_function:
             return self.get_pose_function(
                 segmented_scene_points, segmented_scene_colors,
                 model, init_pose)
 
-        # TODO(kmuhlrad): fill in default alignment function
-        return init_pose
+        X_MS, error, num_iters = RunICP(
+            model, segmented_scene_points, init_guess=init_pose.matrix(),
+            max_iterations=100, tolerance=1e-8)
+
+        return X_MS
 
     def _DoCalcOutput(self, context, output):
         init_pose = self.EvalAbstractInput(
@@ -205,8 +300,8 @@ class PoseRefinement(LeafSystem):
         scene_points, scene_colors = self._TransformPointCloud(
             point_cloud.xyzs(), point_cloud.rgbs())
 
-        segmented_scene_points, segmented_scene_colors = \
-            self.SegmentScene(scene_points, scene_colors, self.model, init_pose)
+        segmented_scene_points, segmented_scene_colors = self.SegmentScene(
+            scene_points, scene_colors, self.model, self.model_image, init_pose)
 
         if self.viz:
             np.save("saved_point_clouds/scene_points", scene_points)
@@ -220,792 +315,7 @@ class PoseRefinement(LeafSystem):
             segmented_scene_points, segmented_scene_colors,
             self.model, init_pose)
 
-        output.get_mutable_value().set_matrix(X_WObject_refined.matrix())
-
-
-def SegmentCrackerBoxByDopePose(scene_points, scene_colors):
-    """Removes all points that aren't a part of the cracker box.
-
-    @param scene_points An Nx3 numpy array representing a scene.
-    @param scene_colors An Nx3 numpy array of rgb values corresponding to the
-        points in scene_points.
-
-    @return brick_points An Mx3 numpy array of points in the box.
-    @return brick_colors An Mx3 numpy array of the colors of the brick box.
-    """
-
-    # TODO(kmuhlrad): read in cracker box dimensions from .sdf
-    # TODO(kmuhlrad): don't hard code initial pose
-
-    init_guess_x = -0.26
-    init_guess_y = -0.59
-    init_guess_z = 0.42
-
-    cracker_box_height = 0.21
-
-    x_min = init_guess_x - cracker_box_height
-    x_max = init_guess_x + cracker_box_height
-
-    y_min = init_guess_y - cracker_box_height
-    y_max = init_guess_y + cracker_box_height
-
-    z_min = init_guess_z - cracker_box_height
-    z_max = init_guess_z + cracker_box_height
-
-    x_indices = ThresholdArray(scene_points[:, 0], x_min, x_max)
-    y_indices = ThresholdArray(scene_points[:, 1], y_min, y_max)
-    z_indices = ThresholdArray(scene_points[:, 2], z_min, z_max)
-
-    indices = reduce(np.intersect1d, (x_indices, y_indices, z_indices))
-
-    cracker_box_points = scene_points[indices, :]
-    cracker_box_colors = scene_colors[indices, :]
-
-    # TODO(kmuhlrad): don't hardcode rgb
-
-    # with counting black
-    # r_avg = 0.364705882353
-    # g_avg = 0.188235294118
-    # b_avg = 0.152941176471
-
-    # without counting black
-    r_avg = 0.647058823529
-    g_avg = 0.333333333333
-    b_avg = 0.274509803922
-
-    delta = 0.2
-
-    r_min = r_avg - delta
-    r_max = r_avg + delta
-
-    g_min = g_avg - delta
-    g_max = g_avg + delta
-
-    b_min = b_avg - delta
-    b_max = b_avg + delta
-
-    r_indices = ThresholdArray(cracker_box_colors[:, 0], r_min, r_max)
-    g_indices = ThresholdArray(cracker_box_colors[:, 1], g_min, g_max)
-    b_indices = ThresholdArray(cracker_box_colors[:, 2], b_min, b_max)
-
-    indices = reduce(np.intersect1d, (r_indices, g_indices, b_indices))
-
-    cracker_box_points = cracker_box_points[indices, :]
-    cracker_box_colors = cracker_box_colors[indices, :]
-
-    return cracker_box_points, cracker_box_colors
-
-def SegmentCrackerBoxByDopeClusters(scene_points, scene_colors):
-    """Removes all points that aren't a part of the cracker box.
-
-    @param scene_points An Nx3 numpy array representing a scene.
-    @param scene_colors An Nx3 numpy array of rgb values corresponding to the
-        points in scene_points.
-
-    @return brick_points An Mx3 numpy array of points in the box.
-    @return brick_colors An Mx3 numpy array of the colors of the brick box.
-    """
-
-    # TODO(kmuhlrad): read in cracker box dimensions from .sdf
-    # TODO(kmuhlrad): don't hard code initial pose
-
-    init_guess_x = -0.26
-    init_guess_y = -0.59
-    init_guess_z = 0.42
-
-    cracker_box_height = 0.21
-
-    x_min = init_guess_x - cracker_box_height
-    x_max = init_guess_x + cracker_box_height
-
-    y_min = init_guess_y - cracker_box_height
-    y_max = init_guess_y + cracker_box_height
-
-    z_min = init_guess_z - cracker_box_height
-    z_max = init_guess_z + cracker_box_height
-
-    x_indices = ThresholdArray(scene_points[:, 0], x_min, x_max)
-    y_indices = ThresholdArray(scene_points[:, 1], y_min, y_max)
-    z_indices = ThresholdArray(scene_points[:, 2], z_min, z_max)
-
-    indices = reduce(np.intersect1d, (x_indices, y_indices, z_indices))
-
-    cracker_box_points = scene_points[indices, :]
-    cracker_box_colors = scene_colors[indices, :]
-
-    # TODO(kmuhlrad): don't hardcode rgb
-
-    # with counting black
-    # r_avg = 0.364705882353
-    # g_avg = 0.188235294118
-    # b_avg = 0.152941176471
-
-    # without counting black
-    r1 = 149./255
-    g1 = 34./255
-    b1 = 27./255
-
-    r2 = -100 #178./255
-    g2 = -100 #164./255
-    b2 = -100 #156./255
-
-    r3 = 190./255
-    g3 = 126./255
-    b3 = 52./255
-
-    delta = 0.15
-
-    r1_min = r1 - delta
-    r1_max = r1 + delta
-
-    g1_min = g1 - delta
-    g1_max = g1 + delta
-
-    b1_min = b1 - delta
-    b1_max = b1 + delta
-
-
-    r2_min = r2 - delta
-    r2_max = r2 + delta
-
-    g2_min = g2 - delta
-    g2_max = g2 + delta
-
-    b2_min = b2 - delta
-    b2_max = b2 + delta
-
-
-    r3_min = r3 - delta
-    r3_max = r3 + delta
-
-    g3_min = g3 - delta
-    g3_max = g3 + delta
-
-    b3_min = b3 - delta
-    b3_max = b3 + delta
-
-
-    r1_indices = ThresholdArray(cracker_box_colors[:, 0], r1_min, r1_max)
-    g1_indices = ThresholdArray(cracker_box_colors[:, 1], g1_min, g1_max)
-    b1_indices = ThresholdArray(cracker_box_colors[:, 2], b1_min, b1_max)
-
-    indices1 = reduce(np.intersect1d, (r1_indices, g1_indices, b1_indices))
-
-    r2_indices = ThresholdArray(cracker_box_colors[:, 0], r2_min, r2_max)
-    g2_indices = ThresholdArray(cracker_box_colors[:, 1], g2_min, g2_max)
-    b2_indices = ThresholdArray(cracker_box_colors[:, 2], b2_min, b2_max)
-
-    indices2 = reduce(np.intersect1d, (r2_indices, g2_indices, b2_indices))
-
-    r3_indices = ThresholdArray(cracker_box_colors[:, 0], r3_min, r3_max)
-    g3_indices = ThresholdArray(cracker_box_colors[:, 1], g3_min, g3_max)
-    b3_indices = ThresholdArray(cracker_box_colors[:, 2], b3_min, b3_max)
-
-    indices3 = reduce(np.intersect1d, (r3_indices, g3_indices, b3_indices))
-
-    indices = reduce(np.union1d, (indices1, indices2, indices3))
-
-    cracker_box_points = cracker_box_points[indices, :]
-    cracker_box_colors = cracker_box_colors[indices, :]
-
-    return cracker_box_points, cracker_box_colors
-
-def SegmentCrackerBoxByDopeHSV(scene_points, scene_colors):
-    """Removes all points that aren't a part of the cracker box.
-
-    @param scene_points An Nx3 numpy array representing a scene.
-    @param scene_colors An Nx3 numpy array of rgb values corresponding to the
-        points in scene_points.
-
-    @return brick_points An Mx3 numpy array of points in the box.
-    @return brick_colors An Mx3 numpy array of the colors of the brick box.
-    """
-
-    # TODO(kmuhlrad): read in cracker box dimensions from .sdf
-    # TODO(kmuhlrad): don't hard code initial pose
-
-    init_guess_x = -0.26
-    init_guess_y = -0.59
-    init_guess_z = 0.42
-
-    cracker_box_height = 0.21
-
-    x_min = init_guess_x - cracker_box_height
-    x_max = init_guess_x + cracker_box_height
-
-    y_min = init_guess_y - cracker_box_height
-    y_max = init_guess_y + cracker_box_height
-
-    z_min = init_guess_z - cracker_box_height
-    z_max = init_guess_z + cracker_box_height
-
-    x_indices = ThresholdArray(scene_points[:, 0], x_min, x_max)
-    y_indices = ThresholdArray(scene_points[:, 1], y_min, y_max)
-    z_indices = ThresholdArray(scene_points[:, 2], z_min, z_max)
-
-    indices = reduce(np.intersect1d, (x_indices, y_indices, z_indices))
-
-    cracker_box_points = scene_points[indices, :]
-    cracker_box_colors = scene_colors[indices, :]
-
-    # TODO(kmuhlrad): don't hardcode hsv
-
-    import matplotlib.colors as mcolors
-
-    cracker_box_colors_hsv = mcolors.rgb_to_hsv(cracker_box_colors)
-
-    print cracker_box_colors[10000]
-    print cracker_box_colors_hsv[10000]
-
-    # with counting black
-    # r_avg = 0.364705882353
-    # g_avg = 0.188235294118
-    # b_avg = 0.152941176471
-
-    # without counting black
-    h_avg = 0.384970019226538 / (2 * np.pi)
-    s_avg = 0.620146624099
-    v_avg = 0.650754493633
-
-    h1 = 3 / 360.
-    h2 = 21 / 360.
-    h3 = 32 / 360.
-
-    delta = 1 / 360.
-
-    h1_min = h1 - delta
-    h1_max = h1 + delta
-
-    h2_min = h2 - delta
-    h2_max = h2 + delta
-
-    h3_min = h3 - delta
-    h3_max = h3 + delta
-
-    s_min = s_avg - delta
-    s_max = s_avg + delta
-
-    v_min = v_avg - delta
-    v_max = v_avg + delta
-
-    h1_indices = ThresholdArray(cracker_box_colors_hsv[:, 0], h1_min, h1_max)
-    h2_indices = ThresholdArray(cracker_box_colors_hsv[:, 0], h2_min, h2_max)
-    h3_indices = ThresholdArray(cracker_box_colors_hsv[:, 0], h3_min, h3_max)
-    s_indices = ThresholdArray(cracker_box_colors_hsv[:, 1], s_min, s_max)
-    v_indices = ThresholdArray(cracker_box_colors_hsv[:, 2], v_min, v_max)
-
-    #indices = reduce(np.intersect1d, (h_indices, s_indices, v_indices))
-    indices = reduce(np.union1d, (h1_indices, h2_indices, h3_indices))
-
-    cracker_box_points = cracker_box_points[indices, :]
-    cracker_box_colors = cracker_box_colors[indices, :]
-
-    return cracker_box_points, cracker_box_colors
-
-def GetCrackerBoxPose(cracker_box_points, cracker_box_colors, dope_pose):
-    """Finds a good 4x4 pose of the cracker box from the segmented points.
-
-    @param cracker_box_points An Nx3 numpy array of brick points.
-    @param cracker_box_colors An Nx3 numpy array of corresponding brick colors.
-
-    @return X_MS A 4x4 numpy array of the best-fit brick pose.
-    """
-    #model = np.load("/home/amazon/cloud-manipulation-station-sim/perception/models/cracker_box_texture.npy")
-    model = np.load("models/cracker_box_texture.npy")
-
-    print dope_pose
-    X_MS, error, num_iters = RunICP(
-        model, cracker_box_points, init_guess=dope_pose,
-        max_iterations=100, tolerance=1e-8)
-
-    print "ICP Error:", error
-    print "Num ICP Iters:", num_iters
-    print
-
-    return X_MS
-
-
-def SegmentSugarBoxByDopePose(scene_points, scene_colors):
-    """Removes all points that aren't a part of the cracker box.
-
-    @param scene_points An Nx3 numpy array representing a scene.
-    @param scene_colors An Nx3 numpy array of rgb values corresponding to the
-        points in scene_points.
-
-    @return brick_points An Mx3 numpy array of points in the box.
-    @return brick_colors An Mx3 numpy array of the colors of the brick box.
-    """
-
-    # TODO(kmuhlrad): read in cracker box dimensions from .sdf
-    # TODO(kmuhlrad): don't hard code initial pose
-
-    init_guess_x = -0.26
-    init_guess_y = -0.75
-    init_guess_z = 0.38
-
-    sugar_box_height = 0.18
-
-    x_min = init_guess_x - sugar_box_height
-    x_max = init_guess_x + sugar_box_height
-
-    y_min = init_guess_y - sugar_box_height
-    y_max = init_guess_y + sugar_box_height
-
-    z_min = init_guess_z - sugar_box_height
-    z_max = init_guess_z + sugar_box_height
-
-    x_indices = ThresholdArray(scene_points[:, 0], x_min, x_max)
-    y_indices = ThresholdArray(scene_points[:, 1], y_min, y_max)
-    z_indices = ThresholdArray(scene_points[:, 2], z_min, z_max)
-
-    indices = reduce(np.intersect1d, (x_indices, y_indices, z_indices))
-
-    cracker_box_points = scene_points[indices, :]
-    cracker_box_colors = scene_colors[indices, :]
-
-    # TODO(kmuhlrad): don't hardcode rgb
-
-    # without counting black
-    r_avg = 0.709803921569
-    g_avg = 0.694117647059
-    b_avg = 0.458823529412
-
-    delta = 0.2
-
-    r_min = r_avg - delta
-    r_max = r_avg + delta
-
-    g_min = g_avg - delta
-    g_max = g_avg + delta
-
-    b_min = b_avg - delta
-    b_max = b_avg + delta
-
-    r_indices = ThresholdArray(cracker_box_colors[:, 0], r_min, r_max)
-    g_indices = ThresholdArray(cracker_box_colors[:, 1], g_min, g_max)
-    b_indices = ThresholdArray(cracker_box_colors[:, 2], b_min, b_max)
-
-    indices = reduce(np.intersect1d, (r_indices, g_indices, b_indices))
-
-    cracker_box_points = cracker_box_points[indices, :]
-    cracker_box_colors = cracker_box_colors[indices, :]
-
-    return cracker_box_points, cracker_box_colors
-
-def SegmentSugarBoxByDopeHSV(scene_points, scene_colors):
-    """Removes all points that aren't a part of the cracker box.
-
-    @param scene_points An Nx3 numpy array representing a scene.
-    @param scene_colors An Nx3 numpy array of rgb values corresponding to the
-        points in scene_points.
-
-    @return brick_points An Mx3 numpy array of points in the box.
-    @return brick_colors An Mx3 numpy array of the colors of the brick box.
-    """
-
-    # TODO(kmuhlrad): read in cracker box dimensions from .sdf
-    # TODO(kmuhlrad): don't hard code initial pose
-
-    init_guess_x = -0.26
-    init_guess_y = -0.75
-    init_guess_z = 0.38
-
-    sugar_box_height = 0.18
-
-    x_min = init_guess_x - sugar_box_height
-    x_max = init_guess_x + sugar_box_height
-
-    y_min = init_guess_y - sugar_box_height
-    y_max = init_guess_y + sugar_box_height
-
-    z_min = init_guess_z - sugar_box_height
-    z_max = init_guess_z + sugar_box_height
-
-    x_indices = ThresholdArray(scene_points[:, 0], x_min, x_max)
-    y_indices = ThresholdArray(scene_points[:, 1], y_min, y_max)
-    z_indices = ThresholdArray(scene_points[:, 2], z_min, z_max)
-
-    indices = reduce(np.intersect1d, (x_indices, y_indices, z_indices))
-
-    cracker_box_points = scene_points[indices, :]
-    cracker_box_colors = scene_colors[indices, :]
-
-    # TODO(kmuhlrad): don't hardcode rgb
-
-    import matplotlib.colors as mcolors
-
-    cracker_box_colors_hsv = mcolors.rgb_to_hsv(cracker_box_colors)
-
-    h1 = 61 / 360.
-    h2 = 56 / 360.
-    h3 = 245 / 360.
-
-    delta = 1 / 360.
-
-    h1_min = h1 - delta
-    h1_max = h1 + delta
-
-    h2_min = h2 - delta
-    h2_max = h2 + delta
-
-    h3_min = h3 - delta
-    h3_max = h3 + delta
-
-    # s_min = s_avg - delta
-    # s_max = s_avg + delta
-
-    # v_min = v_avg - delta
-    # v_max = v_avg + delta
-
-    h1_indices = ThresholdArray(cracker_box_colors_hsv[:, 0], h1_min, h1_max)
-    h2_indices = ThresholdArray(cracker_box_colors_hsv[:, 0], h2_min, h2_max)
-    h3_indices = ThresholdArray(cracker_box_colors_hsv[:, 0], h3_min, h3_max)
-    # s_indices = ThresholdArray(cracker_box_colors_hsv[:, 1], s_min, s_max)
-    # v_indices = ThresholdArray(cracker_box_colors_hsv[:, 2], v_min, v_max)
-
-    #indices = reduce(np.intersect1d, (h_indices, s_indices, v_indices))
-    indices = reduce(np.union1d, (h1_indices, h2_indices, h3_indices))
-
-    cracker_box_points = cracker_box_points[indices, :]
-    cracker_box_colors = cracker_box_colors[indices, :]
-
-    return cracker_box_points, cracker_box_colors
-
-def GetSugarBoxPose(cracker_box_points, cracker_box_colors, dope_pose):
-    """Finds a good 4x4 pose of the cracker box from the segmented points.
-
-    @param cracker_box_points An Nx3 numpy array of brick points.
-    @param cracker_box_colors An Nx3 numpy array of corresponding brick colors.
-
-    @return X_MS A 4x4 numpy array of the best-fit brick pose.
-    """
-    #model = np.load("/home/amazon/cloud-manipulation-station-sim/perception/models/cracker_box_texture.npy")
-    model = np.load("models/sugar_box_texture.npy")
-
-    print dope_pose
-    X_MS, error, num_iters = RunICP(
-        model, cracker_box_points, init_guess=dope_pose,
-        max_iterations=100, tolerance=1e-8)
-
-    print "ICP Error:", error
-    print "Num ICP Iters:", num_iters
-    print
-
-    return X_MS
-
-def SegmentGelatinBoxByDopePose(scene_points, scene_colors):
-    """Removes all points that aren't a part of the cracker box.
-
-    @param scene_points An Nx3 numpy array representing a scene.
-    @param scene_colors An Nx3 numpy array of rgb values corresponding to the
-        points in scene_points.
-
-    @return brick_points An Mx3 numpy array of points in the box.
-    @return brick_colors An Mx3 numpy array of the colors of the brick box.
-    """
-
-    # TODO(kmuhlrad): read in cracker box dimensions from .sdf
-    # TODO(kmuhlrad): don't hard code initial pose
-
-    init_guess_x = -0.11
-    init_guess_y = -0.75
-    init_guess_z = 0.53
-
-    gelatin_box_height = 0.18
-
-    x_min = init_guess_x - gelatin_box_height
-    x_max = init_guess_x + gelatin_box_height
-
-    y_min = init_guess_y - gelatin_box_height
-    y_max = init_guess_y + gelatin_box_height
-
-    z_min = init_guess_z - gelatin_box_height
-    z_max = init_guess_z + gelatin_box_height
-
-    x_min = -0.2
-    x_max = -0.1
-
-    y_min = -0.65
-    y_max = -0.6
-
-    z_min = 0.35
-    z_max = 0.6
-
-    x_indices = ThresholdArray(scene_points[:, 0], x_min, x_max)
-    y_indices = ThresholdArray(scene_points[:, 1], y_min, y_max)
-    z_indices = ThresholdArray(scene_points[:, 2], z_min, z_max)
-
-    indices = reduce(np.intersect1d, (x_indices, y_indices, z_indices))
-
-    cracker_box_points = scene_points[indices, :]
-    cracker_box_colors = scene_colors[indices, :]
-
-    # TODO(kmuhlrad): don't hardcode rgb
-
-    # without counting black
-    r_avg = 0.690196078431
-    g_avg = 0.458823529412
-    b_avg = 0.439215686275
-
-    delta = 0.2
-
-    r_min = r_avg - delta
-    r_max = r_avg + delta
-
-    g_min = g_avg - delta
-    g_max = g_avg + delta
-
-    b_min = b_avg - delta
-    b_max = b_avg + delta
-
-    r_min = 0
-    r_max = 1
-
-    g_min = 0
-    g_max = 0.2
-
-    b_min = 0
-    b_max = 0.2
-
-    r_indices = ThresholdArray(cracker_box_colors[:, 0], r_min, r_max)
-    g_indices = ThresholdArray(cracker_box_colors[:, 1], g_min, g_max)
-    b_indices = ThresholdArray(cracker_box_colors[:, 2], b_min, b_max)
-
-    indices = reduce(np.intersect1d, (r_indices, g_indices, b_indices))
-
-    cracker_box_points = cracker_box_points[indices, :]
-    cracker_box_colors = cracker_box_colors[indices, :]
-
-    return cracker_box_points, cracker_box_colors
-
-def SegmentGelatinBoxByDopeClusters(scene_points, scene_colors):
-    """Removes all points that aren't a part of the cracker box.
-
-    @param scene_points An Nx3 numpy array representing a scene.
-    @param scene_colors An Nx3 numpy array of rgb values corresponding to the
-        points in scene_points.
-
-    @return brick_points An Mx3 numpy array of points in the box.
-    @return brick_colors An Mx3 numpy array of the colors of the brick box.
-    """
-
-    # TODO(kmuhlrad): read in cracker box dimensions from .sdf
-    # TODO(kmuhlrad): don't hard code initial pose
-
-    init_guess_x = -0.11
-    init_guess_y = -0.75
-    init_guess_z = 0.53
-
-    gelatin_box_height = 0.18
-
-    x_min = init_guess_x - gelatin_box_height
-    x_max = init_guess_x + gelatin_box_height
-
-    y_min = init_guess_y - gelatin_box_height
-    y_max = init_guess_y + gelatin_box_height
-
-    z_min = init_guess_z - gelatin_box_height
-    z_max = init_guess_z + gelatin_box_height
-
-    x_indices = ThresholdArray(scene_points[:, 0], x_min, x_max)
-    y_indices = ThresholdArray(scene_points[:, 1], y_min, y_max)
-    z_indices = ThresholdArray(scene_points[:, 2], z_min, z_max)
-
-    indices = reduce(np.intersect1d, (x_indices, y_indices, z_indices))
-
-    cracker_box_points = scene_points[indices, :]
-    cracker_box_colors = scene_colors[indices, :]
-
-    # TODO(kmuhlrad): don't hardcode rgb
-
-    # with counting black
-    # r_avg = 0.364705882353
-    # g_avg = 0.188235294118
-    # b_avg = 0.152941176471
-
-    # without counting black
-    r1 = 179./255
-    g1 = 178./255
-    b1 = 174./255
-
-    r2 = 166./255
-    g2 = 48./255
-    b2 = 42./255
-
-    r3 = 175./255
-    g3 = 108./255
-    b3 = 103./255
-
-    delta = 0.15
-
-    r1_min = r1 - delta
-    r1_max = r1 + delta
-
-    g1_min = g1 - delta
-    g1_max = g1 + delta
-
-    b1_min = b1 - delta
-    b1_max = b1 + delta
-
-
-    r2_min = r2 - delta
-    r2_max = r2 + delta
-
-    g2_min = g2 - delta
-    g2_max = g2 + delta
-
-    b2_min = b2 - delta
-    b2_max = b2 + delta
-
-
-    r3_min = r3 - delta
-    r3_max = r3 + delta
-
-    g3_min = g3 - delta
-    g3_max = g3 + delta
-
-    b3_min = b3 - delta
-    b3_max = b3 + delta
-
-
-    r1_indices = ThresholdArray(cracker_box_colors[:, 0], r1_min, r1_max)
-    g1_indices = ThresholdArray(cracker_box_colors[:, 1], g1_min, g1_max)
-    b1_indices = ThresholdArray(cracker_box_colors[:, 2], b1_min, b1_max)
-
-    indices1 = reduce(np.intersect1d, (r1_indices, g1_indices, b1_indices))
-
-    r2_indices = ThresholdArray(cracker_box_colors[:, 0], r2_min, r2_max)
-    g2_indices = ThresholdArray(cracker_box_colors[:, 1], g2_min, g2_max)
-    b2_indices = ThresholdArray(cracker_box_colors[:, 2], b2_min, b2_max)
-
-    indices2 = reduce(np.intersect1d, (r2_indices, g2_indices, b2_indices))
-
-    r3_indices = ThresholdArray(cracker_box_colors[:, 0], r3_min, r3_max)
-    g3_indices = ThresholdArray(cracker_box_colors[:, 1], g3_min, g3_max)
-    b3_indices = ThresholdArray(cracker_box_colors[:, 2], b3_min, b3_max)
-
-    indices3 = reduce(np.intersect1d, (r3_indices, g3_indices, b3_indices))
-
-    indices = reduce(np.union1d, (indices1, indices2, indices3))
-
-    cracker_box_points = cracker_box_points[indices, :]
-    cracker_box_colors = cracker_box_colors[indices, :]
-
-    return cracker_box_points, cracker_box_colors
-
-def SegmentGelatinBoxByDopeHSV(scene_points, scene_colors):
-    """Removes all points that aren't a part of the cracker box.
-
-    @param scene_points An Nx3 numpy array representing a scene.
-    @param scene_colors An Nx3 numpy array of rgb values corresponding to the
-        points in scene_points.
-
-    @return brick_points An Mx3 numpy array of points in the box.
-    @return brick_colors An Mx3 numpy array of the colors of the brick box.
-    """
-
-    # TODO(kmuhlrad): read in cracker box dimensions from .sdf
-    # TODO(kmuhlrad): don't hard code initial pose
-
-    init_guess_x = -0.26
-    init_guess_y = -0.59
-    init_guess_z = 0.42
-
-    cracker_box_height = 0.21
-
-    x_min = init_guess_x - cracker_box_height
-    x_max = init_guess_x + cracker_box_height
-
-    y_min = init_guess_y - cracker_box_height
-    y_max = init_guess_y + cracker_box_height
-
-    z_min = init_guess_z - cracker_box_height
-    z_max = init_guess_z + cracker_box_height
-
-    x_indices = ThresholdArray(scene_points[:, 0], x_min, x_max)
-    y_indices = ThresholdArray(scene_points[:, 1], y_min, y_max)
-    z_indices = ThresholdArray(scene_points[:, 2], z_min, z_max)
-
-    indices = reduce(np.intersect1d, (x_indices, y_indices, z_indices))
-
-    cracker_box_points = scene_points[indices, :]
-    cracker_box_colors = scene_colors[indices, :]
-
-    # TODO(kmuhlrad): don't hardcode hsv
-
-    import matplotlib.colors as mcolors
-
-    cracker_box_colors_hsv = mcolors.rgb_to_hsv(cracker_box_colors)
-
-    print cracker_box_colors[10000]
-    print cracker_box_colors_hsv[10000]
-
-    # with counting black
-    # r_avg = 0.364705882353
-    # g_avg = 0.188235294118
-    # b_avg = 0.152941176471
-
-    # without counting black
-    h_avg = 0.384970019226538 / (2 * np.pi)
-    s_avg = 0.620146624099
-    v_avg = 0.650754493633
-
-    h1 = 50 / 360.
-    h2 = 3 / 360.
-    h3 = 4 / 360.
-
-    delta = 1 / 360.
-
-    h1_min = h1 - delta
-    h1_max = h1 + delta
-
-    h2_min = h2 - delta
-    h2_max = h2 + delta
-
-    h3_min = h3 - delta
-    h3_max = h3 + delta
-
-    s_min = s_avg - delta
-    s_max = s_avg + delta
-
-    v_min = v_avg - delta
-    v_max = v_avg + delta
-
-    h1_indices = ThresholdArray(cracker_box_colors_hsv[:, 0], h1_min, h1_max)
-    h2_indices = ThresholdArray(cracker_box_colors_hsv[:, 0], h2_min, h2_max)
-    h3_indices = ThresholdArray(cracker_box_colors_hsv[:, 0], h3_min, h3_max)
-    s_indices = ThresholdArray(cracker_box_colors_hsv[:, 1], s_min, s_max)
-    v_indices = ThresholdArray(cracker_box_colors_hsv[:, 2], v_min, v_max)
-
-    #indices = reduce(np.intersect1d, (h_indices, s_indices, v_indices))
-    indices = reduce(np.union1d, (h1_indices, h2_indices, h3_indices))
-
-    cracker_box_points = cracker_box_points[indices, :]
-    cracker_box_colors = cracker_box_colors[indices, :]
-
-    return cracker_box_points, cracker_box_colors
-
-def GetGelatinBoxPose(cracker_box_points, cracker_box_colors, dope_pose):
-    """Finds a good 4x4 pose of the cracker box from the segmented points.
-
-    @param cracker_box_points An Nx3 numpy array of brick points.
-    @param cracker_box_colors An Nx3 numpy array of corresponding brick colors.
-
-    @return X_MS A 4x4 numpy array of the best-fit brick pose.
-    """
-    #model = np.load("/home/amazon/cloud-manipulation-station-sim/perception/models/cracker_box_texture.npy")
-    model = np.load("models/gelatin_box_texture.npy")
-
-    print dope_pose
-    X_MS, error, num_iters = RunICP(
-        model, cracker_box_points, init_guess=dope_pose,
-        max_iterations=100, tolerance=1e-8)
-
-    print "ICP Error:", error
-    print "Num ICP Iters:", num_iters
-    print
-
-    return X_MS
+        output.get_mutable_value().set_matrix(X_WObject_refined)
 
 def read_poses_from_file(filename):
     pose_dict = {}
@@ -1026,85 +336,7 @@ def read_poses_from_file(filename):
                 row_num %= 4
     return pose_dict
 
-
-def read_rgba_values(filename):
-    from PIL import Image
-
-    im = Image.open(filename) # Can be many different formats.
-    pix = im.load()
-    print im.size  # Get the width and hight of the image for iterating over
-    print pix[0, 0]  # Get the RGBA Value of the a pixel of an image
-    print pix[100, 100]  # Get the RGBA Value of the a pixel of an image
-
-    average_r = 0
-    average_g = 0
-    average_b = 0
-
-    colored_pixels = 0
-
-    for x in range(im.size[0]):
-        for y in range(im.size[1]):
-            r, g, b = pix[x, y]
-            if r and g and b:
-                average_r += r
-                average_g += g
-                average_b += b
-                colored_pixels += 1
-
-    average_r /= colored_pixels
-    average_g /= colored_pixels
-    average_b /= colored_pixels
-
-    print average_r / 255.
-    print average_g / 255.
-    print average_b / 255.
-
-def read_hsv_values(filename):
-    from PIL import Image
-    import colorsys
-
-    im = Image.open(filename) # Can be many different formats.
-    pix = im.load()
-    print im.size  # Get the width and hight of the image for iterating over
-    print pix[0, 0]  # Get the RGBA Value of the a pixel of an image
-    print pix[100, 100]  # Get the RGBA Value of the a pixel of an image
-
-    average_h = 0
-
-    sin_h = 0
-    cos_h = 0
-
-    average_s = 0
-    average_v = 0
-
-    colored_pixels = 0
-
-    for x in range(im.size[0]):
-        for y in range(im.size[1]):
-            r, g, b = pix[x, y]
-            h, s, v = colorsys.rgb_to_hsv(r/255., g/255., b/255.)
-            if r and g and b:
-                # average_h += h
-                sin_h += np.sin(h*2*np.pi)
-                cos_h += np.cos(h*2*np.pi)
-                average_s += s
-                average_v += v
-                colored_pixels += 1
-
-    # average_h /= colored_pixels
-    sin_h /= colored_pixels
-    cos_h /= colored_pixels
-
-    average_h = np.arctan2(sin_h, cos_h)
-    average_s /= colored_pixels
-    average_v /= colored_pixels
-
-    print colored_pixels
-    print average_h
-    print average_s
-    print average_v
-
-def main(config_file, model_file, dope_pose_file, object_name, viz=True):
+def main(config_file, model_points_file, model_image_file, dope_pose_file, object_name, viz=True):
     """Estimates the pose of the foam brick in a ManipulationStation setup.
 
     @param config_file str. The path to a camera configuration file.
@@ -1113,17 +345,17 @@ def main(config_file, model_file, dope_pose_file, object_name, viz=True):
     @return A 4x4 Numpy array representing the pose of the brick.
     """
 
-    segmentation_functions = {
-        'cracker': SegmentCrackerBoxByDopeHSV,
-        'gelatin': SegmentGelatinBoxByDopeHSV,
-        'sugar': SegmentSugarBoxByDopeHSV,
-    }
-
-    alignment_functions = {
-        'cracker': GetCrackerBoxPose,
-        'gelatin': GetGelatinBoxPose,
-        'sugar': GetSugarBoxPose,
-    }
+    # segmentation_functions = {
+    #     'cracker': SegmentCrackerBoxByDopeHSV,
+    #     'gelatin': SegmentGelatinBoxByDopeHSV,
+    #     'sugar': SegmentSugarBoxByDopeHSV,
+    # }
+    #
+    # alignment_functions = {
+    #     'cracker': GetCrackerBoxPose,
+    #     'gelatin': GetGelatinBoxPose,
+    #     'sugar': GetSugarBoxPose,
+    # }
 
     builder = DiagramBuilder()
 
@@ -1136,14 +368,15 @@ def main(config_file, model_file, dope_pose_file, object_name, viz=True):
     #     alignment_functions[object_name]))
 
     pose_refinement = builder.AddSystem(PoseRefinement(
-            config_file, model_file, viz))
+            config_file, model_points_file, model_image_file, viz=viz))
 
     left_camera_info = pose_refinement.camera_configs["left_camera_info"]
     left_name_prefix = \
         "camera_" + pose_refinement.camera_configs["left_camera_serial"]
 
+    # use scale factor of 1/1000 to convert mm to m
     dut = builder.AddSystem(
-        mut.DepthImageToPointCloud(left_camera_info, PixelType.kDepth16U))
+        mut.DepthImageToPointCloud(left_camera_info, PixelType.kDepth16U, 1e-3))
 
     builder.Connect(station.GetOutputPort(left_name_prefix + "_depth_image"),
                     dut.depth_image_input_port())
@@ -1165,6 +398,26 @@ def main(config_file, model_file, dope_pose_file, object_name, viz=True):
     context.FixInputPort(pose_refinement.GetInputPort(
         "X_WObject_guess").get_index(), AbstractValue.Make(dope_pose))
 
+    station_context = diagram.GetMutableSubsystemContext(
+        station, simulator.get_mutable_context())
+
+    station_context.FixInputPort(station.GetInputPort(
+        "iiwa_feedforward_torque").get_index(), np.zeros(7))
+
+    station_context.FixInputPort(station.GetInputPort(
+        "iiwa_position").get_index(), np.array([-1.57, 0.1, 0, -1.2, 0, 1.6, 0]))
+
+    station_context.FixInputPort(station.GetInputPort(
+        "wsg_position").get_index(), np.array([0.1]))
+
+    station_context.FixInputPort(station.GetInputPort(
+        "wsg_force_limit").get_index(), np.array([40.0]))
+
+    simulator.set_publish_every_time_step(False)
+
+    simulator.set_target_realtime_rate(1.0)
+    simulator.StepTo(0.1)
+
     return pose_refinement.GetOutputPort("X_WObject_refined").Eval(context)
 
 
@@ -1178,6 +431,10 @@ if __name__ == "__main__":
         "--model_file",
         required=True,
         help="The path to a .npy model file")
+    parser.add_argument(
+        "--model_image_file",
+        required=True,
+        help="The path to a .png model texture file")
     parser.add_argument(
         "--dope_pose_file",
         required=True,
@@ -1193,5 +450,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     print main(
-        args.config_file, args.model_file, args.dope_pose_file,
-        args.object_name, args.viz)
+        args.config_file, args.model_file, args.model_image_file,
+        args.dope_pose_file, args.object_name, args.viz)
+
+
