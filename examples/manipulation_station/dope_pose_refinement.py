@@ -1,27 +1,20 @@
 import argparse
 import numpy as np
 import yaml
-from PIL import Image
 
+from PIL import Image
 from iterative_closest_point import RunICP
 
 import pydrake.perception as mut
 
-# TODO(kmuhlrad): add hardware interface
 from pydrake.examples.manipulation_station import (
     ManipulationStation, ManipulationStationHardwareInterface)
+from pydrake.math import RollPitchYaw
 from pydrake.systems.analysis import Simulator
 from pydrake.systems.framework import (AbstractValue, BasicVector,
                                        DiagramBuilder, LeafSystem, PortDataType)
 from pydrake.systems.sensors import CameraInfo, PixelType
-
-# TODO(kmuhlrad): there might be an updated location
 from pydrake.util.eigen_geometry import Isometry3
-
-# TODO(kmuhlrad): get rid of this, change transforms to Drake
-import meshcat.transformations as tf
-
-# TODO(kmuhlrad): update documentation
 
 class PoseRefinement(LeafSystem):
 
@@ -107,21 +100,25 @@ class PoseRefinement(LeafSystem):
 
         # construct the transformation matrix
         world_transform = camera_config["world_transform"]
-        # TODO(kmuhlrad): change this to drake
-        X_WCamera = tf.euler_matrix(world_transform["roll"],
-                                    world_transform["pitch"],
-                                    world_transform["yaw"])
-        X_WCamera[:3, 3] = \
-            [world_transform["x"], world_transform["y"], world_transform["z"]]
+        X_WCamera = Isometry3.Identity()
+        X_WCamera.set_rotation(
+            RollPitchYaw(world_transform["roll"],
+                         world_transform["pitch"],
+                         world_transform["yaw"]).ToRotationMatrix().matrix())
+        X_WCamera.set_translation(
+            [world_transform["x"], world_transform["y"], world_transform["z"]])
 
         # construct the transformation matrix
         internal_transform = camera_config["internal_transform"]
-        X_CameraDepth = tf.euler_matrix(internal_transform["roll"],
-                                        internal_transform["pitch"],
-                                        internal_transform["yaw"])
-        X_CameraDepth[:3, 3] = ([internal_transform["x"],
-                                 internal_transform["y"],
-                                 internal_transform["z"]])
+
+        X_CameraDepth = Isometry3.Identity()
+        X_CameraDepth.set_rotation(
+            RollPitchYaw(internal_transform["roll"],
+                         internal_transform["pitch"],
+                         internal_transform["yaw"]).ToRotationMatrix().matrix())
+        X_CameraDepth.set_translation([internal_transform["x"],
+                                       internal_transform["y"],
+                                       internal_transform["z"]])
 
         # construct the camera info
         camera_info_data = camera_config["camera_info"]
@@ -142,9 +139,9 @@ class PoseRefinement(LeafSystem):
         pc_h = np.ones((4, point_cloud.shape[1]))
         pc_h[:3, :] = np.copy(point_cloud)
 
-        X_WDepth = self.camera_configs["left_camera_pose_world"].dot(
+        X_WDepth = self.camera_configs["left_camera_pose_world"].multiply(
             self.camera_configs["left_camera_pose_internal"])
-        point_cloud_transformed = X_WDepth.dot(pc_h)
+        point_cloud_transformed = X_WDepth.matrix().dot(pc_h)
 
         # Filter the final point cloud for NaNs and infs
         nan_indices = np.logical_not(np.isnan(point_cloud_transformed))
@@ -351,6 +348,7 @@ class PoseRefinement(LeafSystem):
         segmented_scene_points, segmented_scene_colors = self.SegmentScene(
             scene_points, scene_colors, self.model, self.model_image, init_pose)
 
+        # TODO(kmuhlrad): use os.join
         if self.viz:
             np.save(self.viz_save_location + "transformed_scene_points",
                     scene_points)
@@ -368,7 +366,7 @@ class PoseRefinement(LeafSystem):
         output.get_mutable_value().set_matrix(X_WObject_refined)
 
 
-def read_poses_from_file(filename):
+def ReadPosesFromFile(filename):
     pose_dict = {}
     row_num = 0
     object_name = ""
@@ -388,9 +386,34 @@ def read_poses_from_file(filename):
                 row_num %= 4
     return pose_dict
 
-# TODO(kmuhlrad): add an example of a custom function
-def main(config_file, model_points_file, model_image_file, dope_pose_file,
-         object_name, viz=True, save_path=""):
+
+def CustomAlignmentFunctionDummy(segmented_scene_points, segmented_scene_colors,
+                                 model, model_image, init_pose):
+    """Returns the identity matrix of the object of interest.
+
+    This is an example of writing a custom pose alignment function. Although
+    this particular function is not very useful, it illustrates the required
+    method signature and how to use it in a PoseRefinement System.
+
+    Args:
+    @param segmented_scene_points An Nx3 numpy array of the segmented object
+        points.
+    @param segmented_scene_colors An Nx3 numpy array of the segmented object
+        colors.
+    @param model A Px3 numpy array representing the object model.
+    @param model_image A PIL.Image containing the object texture.
+    @param init_pose An Isometry3 representing the initial guess of the
+        pose of the object.
+
+    Returns:
+    @return The 4x4 numpy identity matrix
+    """
+
+    return np.eye(4)
+
+
+def Main(config_file, model_points_file, model_image_file, dope_pose_file,
+         object_name, viz=True, save_path="", custom_align=False):
     """Estimates the pose of the given object in a ManipulationStation
     DopeClutterClearing setup.
 
@@ -404,17 +427,21 @@ def main(config_file, model_points_file, model_image_file, dope_pose_file,
     @param save_path str. If viz is True, the directory to save the transformed
         and segmented point clouds. The default is saving all point clouds to
         the current directory.
+    @param custom_align bool. If True, use the example custom pose alignment
+        function.
 
     @return A 4x4 Numpy array representing the pose of the object.
     """
 
     builder = DiagramBuilder()
 
-    # pose_refinement = builder.AddSystem(PoseRefinement(
-    #     config_file, model_file, viz, segmentation_functions[object_name],
-    #     alignment_functions[object_name]))
-
-    pose_refinement = builder.AddSystem(PoseRefinement(
+    if custom_align:
+        pose_refinement = builder.AddSystem(PoseRefinement(
+            config_file, model_points_file, model_image_file,
+            alignment_function=CustomAlignmentFunctionDummy, viz=viz,
+            viz_save_location=save_path))
+    else:
+        pose_refinement = builder.AddSystem(PoseRefinement(
             config_file, model_points_file, model_image_file, viz=viz,
             viz_save_location=save_path))
 
@@ -451,7 +478,7 @@ def main(config_file, model_points_file, model_image_file, dope_pose_file,
     diagram = builder.Build()
     simulator = Simulator(diagram)
 
-    dope_poses = read_poses_from_file(dope_pose_file)
+    dope_poses = ReadPosesFromFile(dope_pose_file)
     dope_pose = dope_poses[object_name]
 
 
@@ -517,8 +544,13 @@ if __name__ == "__main__":
         required=False,
         default="",
         help="A path to a directory to save point clouds")
+    parser.add_argument(
+        "--custom_align",
+        action="store_true",
+        help="A path to a directory to save point clouds")
     args = parser.parse_args()
 
-    print main(
+    print Main(
         args.config_file, args.model_file, args.model_image_file,
-        args.dope_pose_file, args.object_name, args.viz, args.viz_save_path)
+        args.dope_pose_file, args.object_name, args.viz, args.viz_save_path,
+        args.custom_align)
