@@ -1,5 +1,6 @@
 import argparse
 import numpy as np
+import os
 import yaml
 
 from PIL import Image
@@ -348,15 +349,18 @@ class PoseRefinement(LeafSystem):
         segmented_scene_points, segmented_scene_colors = self.SegmentScene(
             scene_points, scene_colors, self.model, self.model_image, init_pose)
 
-        # TODO(kmuhlrad): use os.join
         if self.viz:
-            np.save(self.viz_save_location + "transformed_scene_points",
+            np.save(os.path.join(
+                        self.viz_save_location, "transformed_scene_points"),
                     scene_points)
-            np.save(self.viz_save_location + "transformed_scene_colors",
+            np.save(os.path.join(
+                        self.viz_save_location, "transformed_scene_colors"),
                     scene_colors)
-            np.save(self.viz_save_location + "segmented_scene_points",
+            np.save(os.path.join(
+                        self.viz_save_location, "segmented_scene_points"),
                     segmented_scene_points)
-            np.save(self.viz_save_location + "segmented_scene_colors",
+            np.save(os.path.join(
+                        self.viz_save_location, "segmented_scene_colors"),
                     segmented_scene_colors)
 
         X_WObject_refined = self.AlignPose(
