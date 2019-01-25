@@ -1,26 +1,24 @@
 import argparse
 import numpy as np
 import yaml
+from PIL import Image
 
 from iterative_closest_point import RunICP
 
-from pydrake.util.eigen_geometry import Isometry3
-from pydrake.systems.analysis import Simulator
-from pydrake.systems.framework import (AbstractValue, BasicVector,
-                                       DiagramBuilder, LeafSystem,
-                                       PortDataType)
+import pydrake.perception as mut
+
 # TODO(kmuhlrad): add hardware interface
 from pydrake.examples.manipulation_station import (
     ManipulationStation, ManipulationStationHardwareInterface)
+from pydrake.systems.analysis import Simulator
+from pydrake.systems.framework import (AbstractValue, BasicVector,
+                                       DiagramBuilder, LeafSystem, PortDataType)
+from pydrake.systems.sensors import CameraInfo, PixelType
 
-from pydrake.systems.framework import AbstractValue, LeafSystem
-from pydrake.common.eigen_geometry import Isometry3
-from pydrake.systems.sensors import CameraInfo
-import pydrake.perception as mut
-from pydrake.systems.sensors import PixelType
+# TODO(kmuhlrad): there might be an updated location
+from pydrake.util.eigen_geometry import Isometry3
 
-from PIL import Image
-
+# TODO(kmuhlrad): get rid of this, change transforms to Drake
 import meshcat.transformations as tf
 
 # TODO(kmuhlrad): update documentation
@@ -29,19 +27,22 @@ class PoseRefinement(LeafSystem):
 
     def __init__(self, config_file, model_points_file, model_image_file,
                  segment_scene_function=None, alignment_function=None,
-                 viz=False):
+                 viz=False, viz_save_location=""):
         """
         A system that takes in a point cloud, an initial pose guess, and an
         object model and calculates a refined pose of the object. The user can
         optionally supply a custom segmentation function and pose alignment
         function used to determine the pose. If these functions aren't supplied,
-        the default functions in this class will be used.
-
-        # TODO(kmuhlrad): add something about frames
+        the default functions in this class will be used. The input point_cloud
+        is assumed to be in camera frame, and will be transformed according to
+        the supplied camera configuration file into world frame. The input
+        X_WObject_guess is the initial guess of the pose of the object with
+        respect to world frame. The points in model_points_file are expected to
+        be in world frame. The output X_WObject_refined is also in world frame.
 
         @param config_file str. A path to a .yml configuration file for the
             camera. Note that only the "left camera" will be used.
-        @param model_points_file str. A path to a .npy file containing the
+        @param model_points_file str. A path to an .npy file containing the
             object mesh.
         @param model_image_file str. A path to an image file containing the
             object texture.
@@ -50,7 +51,10 @@ class PoseRefinement(LeafSystem):
         @param alignment_function A Python function that calculates a pose from
             a segmented point cloud. See self.AlignPose for more details.
         @param viz bool. If True, save the transformed and segmented point
-            clouds as serialized numpy arrays.
+            clouds as serialized numpy arrays in viz_save_location.
+        @param viz_save_location str. If viz is True, the directory to save
+            the transformed and segmented point clouds. The default is saving
+            all point clouds to the current directory.
 
         @system{
           @input_port{point_cloud},
@@ -78,6 +82,7 @@ class PoseRefinement(LeafSystem):
         self._LoadConfigFile(config_file)
 
         self.viz = viz
+        self.viz_save_location = viz_save_location
 
     def _LoadConfigFile(self, config_file):
         with open(config_file, 'r') as stream:
@@ -347,11 +352,13 @@ class PoseRefinement(LeafSystem):
             scene_points, scene_colors, self.model, self.model_image, init_pose)
 
         if self.viz:
-            np.save("saved_point_clouds/scene_points", scene_points)
-            np.save("saved_point_clouds/scene_colors", scene_colors)
-            np.save("saved_point_clouds/segmented_scene_points",
+            np.save(self.viz_save_location + "transformed_scene_points",
+                    scene_points)
+            np.save(self.viz_save_location + "transformed_scene_colors",
+                    scene_colors)
+            np.save(self.viz_save_location + "segmented_scene_points",
                     segmented_scene_points)
-            np.save("saved_point_clouds/segmented_scene_colors",
+            np.save(self.viz_save_location + "segmented_scene_colors",
                     segmented_scene_colors)
 
         X_WObject_refined = self.AlignPose(
@@ -381,26 +388,25 @@ def read_poses_from_file(filename):
                 row_num %= 4
     return pose_dict
 
-def main(config_file, model_points_file, model_image_file, dope_pose_file, object_name, viz=True):
-    """Estimates the pose of the foam brick in a ManipulationStation setup.
+# TODO(kmuhlrad): add an example of a custom function
+def main(config_file, model_points_file, model_image_file, dope_pose_file,
+         object_name, viz=True, save_path=""):
+    """Estimates the pose of the given object in a ManipulationStation
+    DopeClutterClearing setup.
 
-    @param config_file str. The path to a camera configuration file.
-    @param viz bool. If True, save point clouds to numpy arrays.
+    @param config_file str. A path to a .yml configuration file for the camera.
+    @param model_points_file str. A path to an .npy file containing the object
+        mesh.
+    @param model_image_file str. A path to an image file containing the object
+        texture.
+    @param viz bool. If True, save the transformed and segmented point clouds as
+        serialized numpy arrays in viz_save_location.
+    @param save_path str. If viz is True, the directory to save the transformed
+        and segmented point clouds. The default is saving all point clouds to
+        the current directory.
 
-    @return A 4x4 Numpy array representing the pose of the brick.
+    @return A 4x4 Numpy array representing the pose of the object.
     """
-
-    # segmentation_functions = {
-    #     'cracker': SegmentCrackerBoxByDopeHSV,
-    #     'gelatin': SegmentGelatinBoxByDopeHSV,
-    #     'sugar': SegmentSugarBoxByDopeHSV,
-    # }
-    #
-    # alignment_functions = {
-    #     'cracker': GetCrackerBoxPose,
-    #     'gelatin': GetGelatinBoxPose,
-    #     'sugar': GetSugarBoxPose,
-    # }
 
     builder = DiagramBuilder()
 
@@ -413,7 +419,8 @@ def main(config_file, model_points_file, model_image_file, dope_pose_file, objec
     #     alignment_functions[object_name]))
 
     pose_refinement = builder.AddSystem(PoseRefinement(
-            config_file, model_points_file, model_image_file, viz=viz))
+            config_file, model_points_file, model_image_file, viz=viz,
+            viz_save_location=save_path))
 
     left_camera_info = pose_refinement.camera_configs["left_camera_info"]
     left_name_prefix = \
@@ -437,11 +444,13 @@ def main(config_file, model_points_file, model_image_file, dope_pose_file, objec
     dope_poses = read_poses_from_file(dope_pose_file)
     dope_pose = dope_poses[object_name]
 
+
     context = diagram.GetMutableSubsystemContext(
         pose_refinement, simulator.get_mutable_context())
 
     context.FixInputPort(pose_refinement.GetInputPort(
         "X_WObject_guess").get_index(), AbstractValue.Make(dope_pose))
+
 
     station_context = diagram.GetMutableSubsystemContext(
         station, simulator.get_mutable_context())
@@ -449,8 +458,9 @@ def main(config_file, model_points_file, model_image_file, dope_pose_file, objec
     station_context.FixInputPort(station.GetInputPort(
         "iiwa_feedforward_torque").get_index(), np.zeros(7))
 
+    q0 = station.GetIiwaPosition(station_context)
     station_context.FixInputPort(station.GetInputPort(
-        "iiwa_position").get_index(), np.array([-1.57, 0.1, 0, -1.2, 0, 1.6, 0]))
+        "iiwa_position").get_index(), q0)
 
     station_context.FixInputPort(station.GetInputPort(
         "wsg_position").get_index(), np.array([0.1]))
@@ -458,8 +468,8 @@ def main(config_file, model_points_file, model_image_file, dope_pose_file, objec
     station_context.FixInputPort(station.GetInputPort(
         "wsg_force_limit").get_index(), np.array([40.0]))
 
-    simulator.set_publish_every_time_step(False)
 
+    simulator.set_publish_every_time_step(False)
     simulator.set_target_realtime_rate(1.0)
     simulator.StepTo(0.1)
 
@@ -492,10 +502,14 @@ if __name__ == "__main__":
         "--viz",
         action="store_true",
         help="Save the aligned and segmented point clouds for visualization")
+    parser.add_argument(
+        "--viz_save_path",
+        required=True,
+        help="A path to a directory to save point clouds")
     args = parser.parse_args()
 
     print main(
         args.config_file, args.model_file, args.model_image_file,
-        args.dope_pose_file, args.object_name, args.viz)
+        args.dope_pose_file, args.object_name, args.viz, args.viz_save_path)
 
 
