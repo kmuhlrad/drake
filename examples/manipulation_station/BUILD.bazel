@@ -188,6 +188,15 @@ drake_py_binary(
     ],
 )
 
+drake_py_binary(
+    name = "dope_pose_refinement",
+    srcs = ["dope_pose_refinement.py"],
+    add_test_rule = 1,
+    deps = [
+        "//bindings/pydrake",
+    ],
+)
+
 install_data()
 
 add_lint_tests()
