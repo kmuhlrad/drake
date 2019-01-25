@@ -3,13 +3,13 @@ import numpy as np
 import yaml
 
 from iterative_closest_point import RunICP
-# from visualization_utils import ThresholdArray
 
 from pydrake.util.eigen_geometry import Isometry3
 from pydrake.systems.analysis import Simulator
 from pydrake.systems.framework import (AbstractValue, BasicVector,
                                        DiagramBuilder, LeafSystem,
                                        PortDataType)
+# TODO(kmuhlrad): add hardware interface
 from pydrake.examples.manipulation_station import (
     ManipulationStation, ManipulationStationHardwareInterface)
 
@@ -23,10 +23,12 @@ from PIL import Image
 
 import meshcat.transformations as tf
 
+# TODO(kmuhlrad): update documentation
+
 class PoseRefinement(LeafSystem):
 
     def __init__(self, config_file, model_points_file, model_image_file,
-                 segment_scene_function=None, get_pose_function=None,
+                 segment_scene_function=None, alignment_function=None,
                  viz=False):
         """
         A system that takes in a point cloud, an initial pose guess, and an
@@ -37,14 +39,18 @@ class PoseRefinement(LeafSystem):
 
         # TODO(kmuhlrad): add something about frames
 
-        @param model_file str. A path to a .npy file containing the object mesh.
-        @param model_file str. A path to a .npy file containing the object mesh.
-        @param viz bool. If True, save the aligned and segmented point clouds
-            as serialized numpy arrays.
+        @param config_file str. A path to a .yml configuration file for the
+            camera. Note that only the "left camera" will be used.
+        @param model_points_file str. A path to a .npy file containing the
+            object mesh.
+        @param model_image_file str. A path to an image file containing the
+            object texture.
         @param segment_scene_function A Python function that returns a subset of
             the scene point cloud. See self.SegmentScene for more details.
-        @param get_pose_function A Python function that calculates a pose from a
-            segmented point cloud. See self.GetPose for more details.
+        @param alignment_function A Python function that calculates a pose from
+            a segmented point cloud. See self.AlignPose for more details.
+        @param viz bool. If True, save the transformed and segmented point
+            clouds as serialized numpy arrays.
 
         @system{
           @input_port{point_cloud},
@@ -65,7 +71,7 @@ class PoseRefinement(LeafSystem):
                                         self._DoCalcOutput)
 
         self.segment_scene_function = segment_scene_function
-        self.get_pose_function = get_pose_function
+        self.alignment_function = alignment_function
         self.model = np.load(model_points_file)
         self.model_image = Image.open(model_image_file)
 
@@ -162,7 +168,16 @@ class PoseRefinement(LeafSystem):
         return np.where(
             abs(arr - (max_val + min_val) / 2.) < (max_val - min_val) / 2.)[0]
 
-    def _ReadRgbValues(self, image):
+    def _CalculateAverageRgbValues(self, image):
+        """
+        Calculates the average r, g, and b values of a given image, excluding
+        black pixels.
+
+        @param image A PIL.Image instance.
+
+        @return (average_r, average_g, average_b), where all values are floats
+            between 0 and 255.
+        """
         pix = image.load()
 
         average_r = 0
@@ -170,12 +185,11 @@ class PoseRefinement(LeafSystem):
         average_b = 0
 
         colored_pixels = 0
-        black_threshold = 0
 
         for x in range(image.size[0]):
             for y in range(image.size[1]):
                 r, g, b = pix[x, y]
-                if r > black_threshold and g > black_threshold and b > black_threshold:
+                if r and g and b:
                     average_r += r
                     average_g += g
                     average_b += b
@@ -193,11 +207,35 @@ class PoseRefinement(LeafSystem):
         Returns a subset of the scene point cloud representing the segmentation
         of the object of interest.
 
+        The default segmentation function has two parts:
+            1. An area filter based on the object model and initial pose. Points
+            are only included if they are within the size of the largest model
+            dimension of either side of the initial pose. For example, if the
+            largest dimension of the model was 2 and init_pose was located at
+            (0, 3, 4), all points included in the segmentation mask have
+            x-values between [-2, 2], y-values between [1, 5], and z-values
+            between [2, 6].
+
+            2. A color filter based on the average (r, g, b) value of the
+            model texture, excluding black. Points are only included if their
+            (r, g, b) value is within a threshold of the average value. For
+            example, if the average (r, g, b) value was (0, 127, 255) and the
+            threshold was 10, all points included in the segmentation mask have
+            r-values between [0, 10], g-values between [117, 137], and b-values
+            between [245, 255]. The default threshold is 51.
+
+        The final segmentation mask is the intersection between the area filter
+        and the color filter.
+
+        If a custom scene segmentation function is supplied, it must have this
+        method signature.
+
         @param scene_points An Nx3 numpy array representing a scene.
         @param scene_colors An Nx3 numpy array of rgb values corresponding to
             the points in scene_points.
         @param model A Px3 numpy array representing the object model.
-        @param init_pose A 4x4 numpy array representing the initial guess of the
+        @param model_image A PIL.Image containing the object texture.
+        @param init_pose An Isometry3 representing the initial guess of the
             pose of the object.
 
         @return segmented_points An Mx3 numpy array of segmented object points.
@@ -238,7 +276,7 @@ class PoseRefinement(LeafSystem):
         segmented_colors = scene_colors[indices, :]
 
         # Filter by average (r, g, b) value in the model texture image
-        r_avg, g_avg, b_avg = self._ReadRgbValues(model_image)
+        r_avg, g_avg, b_avg = self._CalculateAverageRgbValues(model_image)
         color_delta = 0.2 * 255
 
         r_min = r_avg - color_delta
@@ -261,9 +299,15 @@ class PoseRefinement(LeafSystem):
 
         return segmented_points, segmented_colors
 
-    def GetPose(self, segmented_scene_points, segmented_scene_colors,
-                model, init_pose):
+    def AlignPose(self, segmented_scene_points, segmented_scene_colors,
+                model, model_image, init_pose):
         """Returns the pose of the object of interest.
+
+        The default pose alignment function runs ICP on the segmented scene
+        with a maximum of 100 iterations and stopping threshold of 1e-8.
+
+        If a custom pose alignment function is supplied, it must have this
+        method signature.
 
         Args:
         @param segmented_scene_points An Nx3 numpy array of the segmented object
@@ -271,21 +315,20 @@ class PoseRefinement(LeafSystem):
         @param segmented_scene_colors An Nx3 numpy array of the segmented object
             colors.
         @param model A Px3 numpy array representing the object model.
-        @param init_pose A 4x4 numpy array representing the initial guess of the
+        @param model_image A PIL.Image containing the object texture.
+        @param init_pose An Isometry3 representing the initial guess of the
             pose of the object.
 
         Returns:
-        @return A 4x4 numpy array representing the pose of the object. The
-            default is the identity matrix if a get_pose_function is not
-            supplied.
+        @return A 4x4 numpy array representing the pose of the object.
         """
 
-        if self.get_pose_function:
-            return self.get_pose_function(
-                segmented_scene_points, segmented_scene_colors,
-                model, init_pose)
+        if self.alignment_function:
+            return self.alignment_function(
+                segmented_scene_points, segmented_scene_colors, model,
+                model_image, init_pose)
 
-        X_MS, error, num_iters = RunICP(
+        X_MS, _, _ = RunICP(
             model, segmented_scene_points, init_guess=init_pose.matrix(),
             max_iterations=100, tolerance=1e-8)
 
@@ -311,15 +354,17 @@ class PoseRefinement(LeafSystem):
             np.save("saved_point_clouds/segmented_scene_colors",
                     segmented_scene_colors)
 
-        X_WObject_refined = self.GetPose(
-            segmented_scene_points, segmented_scene_colors,
-            self.model, init_pose)
+        X_WObject_refined = self.AlignPose(
+            segmented_scene_points, segmented_scene_colors, self.model,
+            self.model_image, init_pose)
 
         output.get_mutable_value().set_matrix(X_WObject_refined)
+
 
 def read_poses_from_file(filename):
     pose_dict = {}
     row_num = 0
+    object_name = ""
     cur_matrix = np.eye(4)
     with open(filename, "r") as f:
         for line in f:
