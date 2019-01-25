@@ -410,10 +410,6 @@ def main(config_file, model_points_file, model_image_file, dope_pose_file,
 
     builder = DiagramBuilder()
 
-    station = builder.AddSystem(ManipulationStation())
-    station.SetupDopeClutterClearingStation()
-    station.Finalize()
-
     # pose_refinement = builder.AddSystem(PoseRefinement(
     #     config_file, model_file, viz, segmentation_functions[object_name],
     #     alignment_functions[object_name]))
@@ -421,6 +417,20 @@ def main(config_file, model_points_file, model_image_file, dope_pose_file,
     pose_refinement = builder.AddSystem(PoseRefinement(
             config_file, model_points_file, model_image_file, viz=viz,
             viz_save_location=save_path))
+
+    # realsense serial numbers are >> 100
+    use_hardware = \
+        int(pose_refinement.camera_configs["left_camera_serial"]) > 100
+
+    if use_hardware:
+        camera_ids = [pose_refinement.camera_configs["left_camera_serial"]]
+        station = builder.AddSystem(
+            ManipulationStationHardwareInterface(camera_ids))
+        station.Connect()
+    else:
+        station = builder.AddSystem(ManipulationStation())
+        station.SetupDopeClutterClearingStation()
+        station.Finalize()
 
     left_camera_info = pose_refinement.camera_configs["left_camera_info"]
     left_name_prefix = \
@@ -504,12 +514,11 @@ if __name__ == "__main__":
         help="Save the aligned and segmented point clouds for visualization")
     parser.add_argument(
         "--viz_save_path",
-        required=True,
+        required=False,
+        default="",
         help="A path to a directory to save point clouds")
     args = parser.parse_args()
 
     print main(
         args.config_file, args.model_file, args.model_image_file,
         args.dope_pose_file, args.object_name, args.viz, args.viz_save_path)
-
-
