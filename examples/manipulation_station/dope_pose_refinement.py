@@ -337,6 +337,16 @@ class PoseRefinement(LeafSystem):
 
         return X_MS
 
+    # TODO(kmuhlrad): make this more formal, right now this is only the crackers
+    def _TransformDopePose(self, pose):
+        X = Isometry3.Identity()
+        X.set_matrix(np.array([[0, 0, 1., 0 ],
+                               [ -1., 0, 0, 0 ],
+                               [ 0, -1., 0, 0 ],
+                               [ -.014141999483108521, .10347499847412109, .012884999513626099, 1 ]]).T)
+
+        return pose.multiply(X)
+
     def _DoCalcOutput(self, context, output):
         init_pose = self.EvalAbstractInput(
             context, self.init_pose_port.get_index()).get_value()
@@ -363,6 +373,7 @@ class PoseRefinement(LeafSystem):
                         self.viz_save_location, "segmented_scene_colors"),
                     segmented_scene_colors)
 
+        init_pose = self._TransformDopePose(init_pose)
         X_WObject_refined = self.AlignPose(
             segmented_scene_points, segmented_scene_colors, self.model,
             self.model_image, init_pose)
