@@ -156,13 +156,12 @@ class ManipulationStation : public systems::Diagram<T> {
   /// @param model_files A list of sdf model files to render.
   /// @param model_poses A list of world poses for each object. It must be the
   /// same length as `model_files`.
-  /// @param render_rgbd_camera If true, add an RgbdCamera looking at the
-  /// clutter.
+  /// @param X_WCameraBody Transformation between the world and the camera body.
   /// @param collision_model Determines which sdf is loaded for the IIWA.
   void SetupClutterClearingStation(
       const std::list<std::string>& model_files,
       const std::vector<math::RigidTransform<T>>& model_poses,
-      bool render_rgbd_camera = false,
+      const math::RigidTransform<double>& X_WCameraBody,
       IiwaCollisionModel collision_model = IiwaCollisionModel::kNoCollision);
 
   /// Adds a default iiwa, wsg, cupboard, and 8020 frame for the MIT
@@ -190,8 +189,8 @@ class ManipulationStation : public systems::Diagram<T> {
   /// @pre `state` must be the systems::State<T> object contained in
   /// `station_context`.
   void SetRandomState(const systems::Context<T>& station_context,
-                       systems::State<T>* state, RandomGenerator* generator)
-                       const override;
+                      systems::State<T>* state,
+                      RandomGenerator* generator) const override;
 
   /// Notifies the ManipulationStation that the IIWA robot model instance can
   /// be identified by @p iiwa_instance as well as necessary information to

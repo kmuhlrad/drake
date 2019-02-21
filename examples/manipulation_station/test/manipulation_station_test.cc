@@ -16,9 +16,6 @@ namespace {
 
 using Eigen::Vector2d;
 using Eigen::VectorXd;
-using math::RigidTransform;
-using math::RollPitchYaw;
-using math::RotationMatrix;
 using multibody::RevoluteJoint;
 using systems::BasicVector;
 
@@ -269,18 +266,22 @@ GTEST_TEST(ManipulationStationTest, SetupClutterClearingStationCustom) {
   const std::list<std::string> model_files{
       "drake/manipulation/models/ycb/sdf/003_cracker_box.sdf"};
 
-  std::vector<RigidTransform<double>> model_poses;
-  RigidTransform<double> X_WObject;
+  std::vector<math::RigidTransform<double>> model_poses;
 
   // The cracker box pose.
-  X_WObject.set_translation(Eigen::Vector3d(-0.3, -0.55, 0.36));
-  X_WObject.set_rotation(RotationMatrix<double>(
-      RollPitchYaw<double>(-1.57, 0, 3)));
+  math::RigidTransform<double> X_WObject =
+      math::RigidTransform<double>(math::RollPitchYaw<double>(-1.57, 0, 3),
+                                   Eigen::Vector3d(-0.3, -0.55, 0.36));
   model_poses.push_back(X_WObject);
 
+  // The world camera pose.
+  math::RigidTransform<double> X_WCameraBody = math::RigidTransform<double>(
+      math::RollPitchYaw<double>(0.0438918, 1.03776, -3.13612),
+      Eigen::Vector3d(-0.233066, -0.451461, 0.466761));
+
   ManipulationStation<double> station(0.002);
-  station.SetupClutterClearingStation(
-      model_files, model_poses, true, IiwaCollisionModel::kNoCollision);
+  station.SetupClutterClearingStation(model_files, model_poses, X_WCameraBody,
+                                      IiwaCollisionModel::kNoCollision);
   station.Finalize();
 
   // Make sure we get through the setup and initialization.
