@@ -45,13 +45,19 @@ PYBIND11_MODULE(manipulation_station, m) {
           py::arg("collision_model") = IiwaCollisionModel::kNoCollision,
           doc.ManipulationStation.SetupDefaultStation.doc)
       .def("SetupClutterClearingStation",
-          &ManipulationStation<T>::SetupClutterClearingStation,
+          py::overload_cast<IiwaCollisionModel>(
+              &ManipulationStation<T>::SetupClutterClearingStation),
           py::arg("collision_model") = IiwaCollisionModel::kNoCollision,
-          doc.ManipulationStation.SetupClutterClearingStation.doc)
-      .def("SetupDopeClutterClearingStation",
-          &ManipulationStation<T>::SetupDopeClutterClearingStation,
+          doc.ManipulationStation.SetupClutterClearingStation.doc_1args)
+      .def("SetupClutterClearingStation",
+          py::overload_cast<const std::list<std::string>&,
+              const std::vector<math::RigidTransform<T>>&,
+              const math::RigidTransform<double>&, const IiwaCollisionModel>(
+              &ManipulationStation<T>::SetupClutterClearingStation),
+          py::arg("model_files"), py::arg("model_poses"),
+          py::arg("X_WCameraBody"),
           py::arg("collision_model") = IiwaCollisionModel::kNoCollision,
-          doc.ManipulationStation.SetupDopeClutterClearingStation.doc)
+          doc.ManipulationStation.SetupClutterClearingStation.doc_4args)
       .def("RegisterIiwaControllerModel",
           &ManipulationStation<T>::RegisterIiwaControllerModel,
           doc.ManipulationStation.RegisterIiwaControllerModel.doc)
