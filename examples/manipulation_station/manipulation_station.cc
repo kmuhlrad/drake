@@ -407,7 +407,7 @@ void ManipulationStation<T>::SetDefaultState(
 
   DRAKE_DEMAND(object_ids_.size() == object_poses_.size());
 
-  for (unsigned long i = 0; i < object_ids_.size(); i++) {
+  for (uint64_t i = 0; i < object_ids_.size(); i++) {
     plant_->SetFreeBodyPose(plant_context, &plant_state,
                             plant_->get_body(object_ids_[i]),
                             object_poses_[i].GetAsIsometry3());
