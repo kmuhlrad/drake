@@ -96,7 +96,8 @@ class TestManipulationStation(unittest.TestCase):
         station = ManipulationStation(time_step=0.001)
         station.SetupClutterClearingStation()
 
-        num_station_bodies = station.get_multibody_plant().num_model_instances()
+        num_station_bodies = (
+            station.get_multibody_plant().num_model_instances())
 
         station.AddDefaultYcbObjects()
         station.Finalize()

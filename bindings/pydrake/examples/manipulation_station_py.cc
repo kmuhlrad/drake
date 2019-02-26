@@ -52,8 +52,7 @@ PYBIND11_MODULE(manipulation_station, m) {
           py::arg("collision_model") = IiwaCollisionModel::kNoCollision,
           doc.ManipulationStation.SetupClutterClearingStation.doc)
       .def("AddManipulandFromFile",
-          &ManipulationStation<T>::AddManipulandFromFile,
-          py::arg("model_file"),
+          &ManipulationStation<T>::AddManipulandFromFile, py::arg("model_file"),
           py::arg("X_WObject"),
           doc.ManipulationStation.AddManipulandFromFile.doc)
       .def("AddDefaultYcbObjects",
