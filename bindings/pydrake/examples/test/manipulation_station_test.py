@@ -39,8 +39,8 @@ class TestManipulationStation(unittest.TestCase):
         station.SetIiwaVelocity(context, v)
         np.testing.assert_array_equal(v, station.GetIiwaVelocity(context))
 
-        q = 4.23
-        v = 8.51
+        q = 0.0423
+        v = 0.0851
         station.SetWsgPosition(context, q)
         self.assertEqual(q, station.GetWsgPosition(context))
         station.SetWsgVelocity(context, v)
@@ -110,8 +110,8 @@ class TestManipulationStation(unittest.TestCase):
         station.SetIiwaVelocity(context, v)
         np.testing.assert_array_equal(v, station.GetIiwaVelocity(context))
 
-        q = 4.23
-        v = 8.51
+        q = 0.0423
+        v = 0.0851
         station.SetWsgPosition(context, q)
         self.assertEqual(q, station.GetWsgPosition(context))
         station.SetWsgVelocity(context, v)
