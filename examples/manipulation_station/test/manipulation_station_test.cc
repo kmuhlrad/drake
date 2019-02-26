@@ -249,38 +249,43 @@ GTEST_TEST(ManipulationStationTest, CheckCollisionVariants) {
   EXPECT_EQ(station2.get_controller_plant().num_collision_geometries(), 0);
 }
 
-GTEST_TEST(ManipulationStationTest, SetupClutterClearingStationDefault) {
+GTEST_TEST(ManipulationStationTest, AddDefaultYcbObjects) {
   ManipulationStation<double> station(0.002);
-  station.SetupClutterClearingStation(IiwaCollisionModel::kNoCollision);
-  station.Finalize();
+  const int num_base_instances =
+      station.get_multibody_plant().num_model_instances();
 
-  // Make sure we get through the setup and initialization.
-  auto context = station.CreateDefaultContext();
+  station.AddDefaultYcbObjects();
 
-  // Check that domain randomization works.
-  RandomGenerator generator;
-  station.SetRandomContext(context.get(), &generator);
+  // Check that all six YCB objects were added.
+  EXPECT_EQ(station.get_multibody_plant().num_model_instances(),
+            num_base_instances + 6);
 }
 
-GTEST_TEST(ManipulationStationTest, SetupClutterClearingStationCustom) {
-  const std::list<std::string> model_files{
-      "drake/manipulation/models/ycb/sdf/003_cracker_box.sdf"};
-
-  std::vector<math::RigidTransform<double>> model_poses;
-
-  // The cracker box pose.
-  math::RigidTransform<double> X_WObject =
-      math::RigidTransform<double>(math::RollPitchYaw<double>(-1.57, 0, 3),
-                                   Eigen::Vector3d(-0.3, -0.55, 0.36));
-  model_poses.push_back(X_WObject);
-
-  // The world camera pose.
-  math::RigidTransform<double> X_WCameraBody = math::RigidTransform<double>(
-      math::RollPitchYaw<double>(0.0438918, 1.03776, -3.13612),
-      Eigen::Vector3d(-0.233066, -0.451461, 0.466761));
-
+GTEST_TEST(ManipulationStationTest, AddManipulandFromFile) {
   ManipulationStation<double> station(0.002);
-  station.SetupClutterClearingStation(model_files, model_poses, X_WCameraBody,
+  const int num_base_instances =
+      station.get_multibody_plant().num_model_instances();
+
+  station.AddManipulandFromFile(
+      "drake/manipulation/models/ycb/sdf/003_cracker_box.sdf",
+      math::RigidTransform<double>::Identity());
+
+  // Check that the cracker box was added.
+  EXPECT_EQ(station.get_multibody_plant().num_model_instances(),
+            num_base_instances + 1);
+
+  station.AddManipulandFromFile(
+      "drake/manipulation/models/ycb/sdf/004_sugar_box.sdf",
+      math::RigidTransform<double>::Identity());
+
+  // Check that the sugar box was added.
+  EXPECT_EQ(station.get_multibody_plant().num_model_instances(),
+            num_base_instances + 2);
+}
+
+GTEST_TEST(ManipulationStationTest, SetupClutterClearingStation) {
+  ManipulationStation<double> station(0.002);
+  station.SetupClutterClearingStation(math::RigidTransform<double>::Identity(),
                                       IiwaCollisionModel::kNoCollision);
   station.Finalize();
 

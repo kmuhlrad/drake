@@ -92,9 +92,13 @@ class TestManipulationStation(unittest.TestCase):
         self.assertEqual(plant.num_positions(), 9)
         self.assertEqual(plant.num_velocities(), 9)
 
-    def test_clutter_clearing_setup_default(self):
+    def test_clutter_clearing_setup(self):
         station = ManipulationStation(time_step=0.001)
         station.SetupClutterClearingStation()
+
+        num_station_bodies = station.get_multibody_plant().num_model_instances()
+
+        station.AddDefaultYcbObjects()
         station.Finalize()
 
         context = station.CreateDefaultContext()
@@ -113,38 +117,8 @@ class TestManipulationStation(unittest.TestCase):
         self.assertEqual(v, station.GetWsgVelocity(context))
 
         self.assertEqual(len(station.get_camera_names()), 1)
-
-    def test_clutter_clearing_setup_custom(self):
-        station = ManipulationStation(time_step=0.001)
-
-        brick = "drake/examples/manipulation_station/models/061_foam_brick.sdf"
-        brick_pose = RigidTransform(
-            RollPitchYaw(-1.57, 0, 0.33), [-0.3, -0.55, 0.36])
-        camera_pose = RigidTransform(
-            RollPitchYaw(-0.3, 0.8, 1.5), [0, -1.5, 1.5])
-        station.SetupClutterClearingStation(
-            model_files=[brick],
-            model_poses=[brick_pose],
-            X_WCameraBody=camera_pose)
-
-        station.Finalize()
-
-        context = station.CreateDefaultContext()
-        q = np.linspace(0.04, 0.6, num=7)
-        v = np.linspace(-2.3, 0.5, num=7)
-        station.SetIiwaPosition(context, q)
-        np.testing.assert_array_equal(q, station.GetIiwaPosition(context))
-        station.SetIiwaVelocity(context, v)
-        np.testing.assert_array_equal(v, station.GetIiwaVelocity(context))
-
-        q = 4.23
-        v = 8.51
-        station.SetWsgPosition(context, q)
-        self.assertEqual(q, station.GetWsgPosition(context))
-        station.SetWsgVelocity(context, v)
-        self.assertEqual(v, station.GetWsgVelocity(context))
-
-        self.assertEqual(len(station.get_camera_names()), 1)
+        self.assertEqual(station.get_multibody_plant().num_model_instances(),
+                         num_station_bodies + 6)
 
     def test_iiwa_collision_model(self):
         # Check that all of the elements of the enum were spelled correctly.

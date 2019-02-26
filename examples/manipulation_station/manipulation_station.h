@@ -140,29 +140,18 @@ class ManipulationStation : public systems::Diagram<T> {
   ///   command inputs.
   explicit ManipulationStation(double time_step = 0.002);
 
-  /// Adds a default iiwa, wsg, two bins, and object clutter, then calls
+  /// Adds a default iiwa, wsg, two bins, and a camera, then calls
   /// RegisterIiwaControllerModel() and RegisterWsgControllerModel() with
   /// the appropriate arguments.
   /// @note Must be called before Finalize().
   /// @note Only one of the `Setup___()` methods should be called.
-  /// @param collision_model Determines which sdf is loaded for the IIWA.
-  void SetupClutterClearingStation(
-      IiwaCollisionModel collision_model = IiwaCollisionModel::kNoCollision);
-
-  /// Adds a default iiwa, wsg, two bins, and custom object clutter, then calls
-  /// RegisterIiwaControllerModel() and RegisterWsgControllerModel() with
-  /// the appropriate arguments.
-  /// @note Must be called before Finalize().
-  /// @note Only one of the `Setup___()` methods should be called.
-  /// @param model_files A list of sdf model files to render.
-  /// @param model_poses A list of world poses for each object. It must be the
-  /// same length as `model_files`.
   /// @param X_WCameraBody Transformation between the world and the camera body.
   /// @param collision_model Determines which sdf is loaded for the IIWA.
   void SetupClutterClearingStation(
-      const std::list<std::string>& model_files,
-      const std::vector<math::RigidTransform<T>>& model_poses,
-      const math::RigidTransform<double>& X_WCameraBody,
+      const math::RigidTransform<double>& X_WCameraBody =
+          math::RigidTransform<double>(math::RollPitchYaw<double>(-0.3, 0.8,
+                                                                  1.5),
+                                       Eigen::Vector3d(0, -1.5, 1.5)),
       IiwaCollisionModel collision_model = IiwaCollisionModel::kNoCollision);
 
   // TODO(kmuhlrad): Rename SetupMITClassStation.
@@ -265,6 +254,19 @@ class ManipulationStation : public systems::Diagram<T> {
       const std::string& name, const multibody::Frame<T>& parent_frame,
       const math::RigidTransform<double>& X_PCameraBody,
       const geometry::dev::render::DepthCameraProperties& properties);
+
+  /// Adds a single object for the robot to manipulate
+  /// @note Must be called before Finalize().
+  /// @param model_file The path to the .sdf model file of the object.
+  /// @param X_WObject The pose of the object in world frame.
+  void AddManipulandFromFile(const std::string& model_file,
+                             const math::RigidTransform<double>& X_WObject);
+
+  /// Adds six YCB objects in front of the robot.
+  /// @note Must be called before Finalize().
+  /// @param model_file The path to the .sdf model file of the object.
+  /// @param X_WObject The pose of the object in world frame.
+  void AddDefaultYcbObjects();
 
   // TODO(russt): Add scalar copy constructor etc once we support more
   // scalar types than T=double.  See #9573.

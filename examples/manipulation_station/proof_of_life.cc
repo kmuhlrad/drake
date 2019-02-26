@@ -43,6 +43,7 @@ int do_main(int argc, char* argv[]) {
   auto station = builder.AddSystem<ManipulationStation>();
   if (FLAGS_setup == "clutter_clearing") {
     station->SetupClutterClearingStation();
+    station->AddDefaultYcbObjects();
   } else if (FLAGS_setup == "default") {
     station->SetupDefaultStation();
   } else {

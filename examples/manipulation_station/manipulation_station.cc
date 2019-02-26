@@ -170,68 +170,70 @@ ManipulationStation<T>::ManipulationStation(double time_step)
 }
 
 template <typename T>
-void ManipulationStation<T>::SetupClutterClearingStation(
-    const IiwaCollisionModel collision_model) {
-  // The DOPE objects.
-  const std::list<std::string> model_files{
-      "drake/manipulation/models/ycb/sdf/003_cracker_box.sdf",
-      "drake/manipulation/models/ycb/sdf/004_sugar_box.sdf",
-      "drake/manipulation/models/ycb/sdf/005_tomato_soup_can.sdf",
-      "drake/manipulation/models/ycb/sdf/006_mustard_bottle.sdf",
-      "drake/manipulation/models/ycb/sdf/009_gelatin_box.sdf",
-      "drake/manipulation/models/ycb/sdf/010_potted_meat_can.sdf"};
+void ManipulationStation<T>::AddManipulandFromFile(
+    const std::string& model_file, const RigidTransform<double>& X_WObject) {
+  multibody::Parser parser(plant_);
+  const auto model_index =
+      parser.AddModelFromFile(FindResourceOrThrow(model_file));
+  const auto indices = plant_->GetBodyIndices(model_index);
+  // Only support single-body objects for now.
+  // Note: this could be generalized fairly easily... would just want to
+  // set default/random positions for the non-floating-base elements below.
+  DRAKE_DEMAND(indices.size() == 1);
+  object_ids_.push_back(indices[0]);
 
-  std::vector<RigidTransform<double>> model_poses;
+  object_poses_.push_back(X_WObject);
+}
+
+template <typename T>
+void ManipulationStation<T>::AddDefaultYcbObjects() {
   RigidTransform<double> X_WObject;
 
   // The cracker box pose.
   X_WObject.set_translation(Eigen::Vector3d(-0.3, -0.55, 0.36));
   X_WObject.set_rotation(
       RotationMatrix<double>(RollPitchYaw<double>(-1.57, 0, 3)));
-  model_poses.push_back(X_WObject);
+  ManipulationStation<T>::AddManipulandFromFile(
+      "drake/manipulation/models/ycb/sdf/003_cracker_box.sdf", X_WObject);
 
   // The sugar box pose.
   X_WObject.set_translation(Eigen::Vector3d(-0.3, -0.7, 0.33));
   X_WObject.set_rotation(
       RotationMatrix<double>(RollPitchYaw<double>(1.57, 1.57, 0)));
-  model_poses.push_back(X_WObject);
+  ManipulationStation<T>::AddManipulandFromFile(
+      "drake/manipulation/models/ycb/sdf/004_sugar_box.sdf", X_WObject);
 
   // The tomato soup can pose.
   X_WObject.set_translation(Eigen::Vector3d(-0.03, -0.57, 0.31));
   X_WObject.set_rotation(
       RotationMatrix<double>(RollPitchYaw<double>(-1.57, 0, 3.14)));
-  model_poses.push_back(X_WObject);
+  ManipulationStation<T>::AddManipulandFromFile(
+      "drake/manipulation/models/ycb/sdf/005_tomato_soup_can.sdf", X_WObject);
 
   // The mustard bottle pose.
   X_WObject.set_translation(Eigen::Vector3d(0.05, -0.66, 0.35));
   X_WObject.set_rotation(
       RotationMatrix<double>(RollPitchYaw<double>(-1.57, 0, 3.3)));
-  model_poses.push_back(X_WObject);
+  ManipulationStation<T>::AddManipulandFromFile(
+      "drake/manipulation/models/ycb/sdf/006_mustard_bottle.sdf", X_WObject);
 
   // The gelatin box pose.
   X_WObject.set_translation(Eigen::Vector3d(-0.15, -0.62, 0.38));
   X_WObject.set_rotation(
       RotationMatrix<double>(RollPitchYaw<double>(-1.57, 0, 3.7)));
-  model_poses.push_back(X_WObject);
+  ManipulationStation<T>::AddManipulandFromFile(
+      "drake/manipulation/models/ycb/sdf/009_gelatin_box.sdf", X_WObject);
 
   // The potted meat can pose.
   X_WObject.set_translation(Eigen::Vector3d(-0.15, -0.62, 0.3));
   X_WObject.set_rotation(
       RotationMatrix<double>(RollPitchYaw<double>(-1.57, 0, 2.5)));
-  model_poses.push_back(X_WObject);
-
-  // The world camera pose.
-  RigidTransform<double> X_WCameraBody = RigidTransform<double>(
-      RollPitchYaw<double>(-0.3, 0.8, 1.5), Vector3d(0, -1.5, 1.5));
-
-  ManipulationStation<T>::SetupClutterClearingStation(
-      model_files, model_poses, X_WCameraBody, collision_model);
+  ManipulationStation<T>::AddManipulandFromFile(
+      "drake/manipulation/models/ycb/sdf/010_potted_meat_can.sdf", X_WObject);
 }
 
 template <typename T>
 void ManipulationStation<T>::SetupClutterClearingStation(
-    const std::list<std::string>& model_files,
-    const std::vector<RigidTransform<T>>& model_poses,
     const math::RigidTransform<double>& X_WCameraBody,
     IiwaCollisionModel collision_model) {
   DRAKE_DEMAND(setup_ == Setup::kNone);
@@ -256,27 +258,8 @@ void ManipulationStation<T>::SetupClutterClearingStation(
                                   "bin_base", X_WC, plant_);
   }
 
-  // Add the objects.
+  // Add the camera.
   {
-    multibody::Parser parser(plant_);
-    for (const auto& model : model_files) {
-      const auto model_index =
-          parser.AddModelFromFile(FindResourceOrThrow(model));
-      const auto indices = plant_->GetBodyIndices(model_index);
-      // Only support single-body objects for now.
-      // Note: this could be generalized fairly easily... would just want to
-      // set default/random positions for the non-floating-base elements below.
-      DRAKE_DEMAND(indices.size() == 1);
-      object_ids_.push_back(indices[0]);
-    }
-
-    object_poses_ = model_poses;
-  }
-
-  // Add default camera.
-  {
-    std::map<std::string, RigidTransform<double>> camera_poses;
-    internal::get_camera_poses(&camera_poses);
     // Typical D415 intrinsics for 848 x 480 resolution, note that rgb and
     // depth are slightly different. And we are not able to model that at the
     // moment.
