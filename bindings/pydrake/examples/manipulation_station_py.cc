@@ -4,6 +4,7 @@
 
 #include "drake/bindings/pydrake/common/deprecation_pybind.h"
 #include "drake/bindings/pydrake/documentation_pybind.h"
+#include "drake/bindings/pydrake/common/drake_optional_pybind.h"
 #include "drake/bindings/pydrake/pydrake_pybind.h"
 #include "drake/examples/manipulation_station/manipulation_station.h"
 #include "drake/examples/manipulation_station/manipulation_station_hardware_interface.h"  // noqa
@@ -46,9 +47,7 @@ PYBIND11_MODULE(manipulation_station, m) {
           doc.ManipulationStation.SetupDefaultStation.doc)
       .def("SetupClutterClearingStation",
           &ManipulationStation<T>::SetupClutterClearingStation,
-          py::arg("X_WCameraBody") = math::RigidTransform<double>(
-              math::RollPitchYaw<double>(-0.3, 0.8, 1.5),
-              Eigen::Vector3d(0, -1.5, 1.5)),
+          py::arg("X_WCameraBody") = nullopt,
           py::arg("collision_model") = IiwaCollisionModel::kNoCollision,
           doc.ManipulationStation.SetupClutterClearingStation.doc)
       .def("AddManipulandFromFile",

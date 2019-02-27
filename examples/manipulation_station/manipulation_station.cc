@@ -234,7 +234,7 @@ void ManipulationStation<T>::AddDefaultYcbObjects() {
 
 template <typename T>
 void ManipulationStation<T>::SetupClutterClearingStation(
-    const math::RigidTransform<double>& X_WCameraBody,
+    const optional<const math::RigidTransformd>& X_WCameraBody,
     IiwaCollisionModel collision_model) {
   DRAKE_DEMAND(setup_ == Setup::kNone);
   setup_ = Setup::kClutterClearing;
@@ -276,7 +276,11 @@ void ManipulationStation<T>::SetupClutterClearingStation(
     geometry::dev::render::DepthCameraProperties camera_properties(
         kWidth, kHeight, fov_y, geometry::dev::render::Fidelity::kLow, 0.1,
         2.0);
-    RegisterRgbdCamera("0", plant_->world_frame(), X_WCameraBody,
+
+    RegisterRgbdCamera("0", plant_->world_frame(),
+                       X_WCameraBody.value_or(math::RigidTransformd(
+                           math::RollPitchYaw<double>(-0.3, 0.8, 1.5),
+                           Eigen::Vector3d(0, -1.5, 1.5))),
                        camera_properties);
   }
 
