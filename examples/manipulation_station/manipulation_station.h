@@ -259,12 +259,6 @@ class ManipulationStation : public systems::Diagram<T> {
   void AddManipulandFromFile(const std::string& model_file,
                              const math::RigidTransform<double>& X_WObject);
 
-  /// Adds six YCB objects in front of the robot.
-  /// @note Must be called before Finalize().
-  /// @param model_file The path to the .sdf model file of the object.
-  /// @param X_WObject The pose of the object in world frame.
-  void AddDefaultYcbObjects();
-
   // TODO(russt): Add scalar copy constructor etc once we support more
   // scalar types than T=double.  See #9573.
 

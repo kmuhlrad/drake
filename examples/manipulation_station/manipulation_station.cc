@@ -186,53 +186,6 @@ void ManipulationStation<T>::AddManipulandFromFile(
 }
 
 template <typename T>
-void ManipulationStation<T>::AddDefaultYcbObjects() {
-  RigidTransform<double> X_WObject;
-
-  // The cracker box pose.
-  X_WObject.set_translation(Eigen::Vector3d(-0.3, -0.55, 0.36));
-  X_WObject.set_rotation(
-      RotationMatrix<double>(RollPitchYaw<double>(-1.57, 0, 3)));
-  ManipulationStation<T>::AddManipulandFromFile(
-      "drake/manipulation/models/ycb/sdf/003_cracker_box.sdf", X_WObject);
-
-  // The sugar box pose.
-  X_WObject.set_translation(Eigen::Vector3d(-0.3, -0.7, 0.33));
-  X_WObject.set_rotation(
-      RotationMatrix<double>(RollPitchYaw<double>(1.57, 1.57, 0)));
-  ManipulationStation<T>::AddManipulandFromFile(
-      "drake/manipulation/models/ycb/sdf/004_sugar_box.sdf", X_WObject);
-
-  // The tomato soup can pose.
-  X_WObject.set_translation(Eigen::Vector3d(-0.03, -0.57, 0.31));
-  X_WObject.set_rotation(
-      RotationMatrix<double>(RollPitchYaw<double>(-1.57, 0, 3.14)));
-  ManipulationStation<T>::AddManipulandFromFile(
-      "drake/manipulation/models/ycb/sdf/005_tomato_soup_can.sdf", X_WObject);
-
-  // The mustard bottle pose.
-  X_WObject.set_translation(Eigen::Vector3d(0.05, -0.66, 0.35));
-  X_WObject.set_rotation(
-      RotationMatrix<double>(RollPitchYaw<double>(-1.57, 0, 3.3)));
-  ManipulationStation<T>::AddManipulandFromFile(
-      "drake/manipulation/models/ycb/sdf/006_mustard_bottle.sdf", X_WObject);
-
-  // The gelatin box pose.
-  X_WObject.set_translation(Eigen::Vector3d(-0.15, -0.62, 0.38));
-  X_WObject.set_rotation(
-      RotationMatrix<double>(RollPitchYaw<double>(-1.57, 0, 3.7)));
-  ManipulationStation<T>::AddManipulandFromFile(
-      "drake/manipulation/models/ycb/sdf/009_gelatin_box.sdf", X_WObject);
-
-  // The potted meat can pose.
-  X_WObject.set_translation(Eigen::Vector3d(-0.15, -0.62, 0.3));
-  X_WObject.set_rotation(
-      RotationMatrix<double>(RollPitchYaw<double>(-1.57, 0, 2.5)));
-  ManipulationStation<T>::AddManipulandFromFile(
-      "drake/manipulation/models/ycb/sdf/010_potted_meat_can.sdf", X_WObject);
-}
-
-template <typename T>
 void ManipulationStation<T>::SetupClutterClearingStation(
     const optional<const math::RigidTransformd>& X_WCameraBody,
     IiwaCollisionModel collision_model) {

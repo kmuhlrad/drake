@@ -249,18 +249,6 @@ GTEST_TEST(ManipulationStationTest, CheckCollisionVariants) {
   EXPECT_EQ(station2.get_controller_plant().num_collision_geometries(), 0);
 }
 
-GTEST_TEST(ManipulationStationTest, AddDefaultYcbObjects) {
-  ManipulationStation<double> station(0.002);
-  const int num_base_instances =
-      station.get_multibody_plant().num_model_instances();
-
-  station.AddDefaultYcbObjects();
-
-  // Check that all six YCB objects were added.
-  EXPECT_EQ(station.get_multibody_plant().num_model_instances(),
-            num_base_instances + 6);
-}
-
 GTEST_TEST(ManipulationStationTest, AddManipulandFromFile) {
   ManipulationStation<double> station(0.002);
   const int num_base_instances =

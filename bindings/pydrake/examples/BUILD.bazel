@@ -70,6 +70,7 @@ drake_pybind_library(
         ":module_py",
         "//bindings/pydrake/systems",
     ],
+    py_srcs = ["_manipulation_station_extra.py"],
     visibility = ["//visibility:public"],
 )
 

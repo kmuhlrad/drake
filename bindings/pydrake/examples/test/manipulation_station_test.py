@@ -4,6 +4,7 @@ import numpy as np
 
 from pydrake.common import FindResourceOrThrow
 from pydrake.examples.manipulation_station import (
+    CreateDefaultYcbObjectList,
     IiwaCollisionModel,
     ManipulationStation,
     ManipulationStationHardwareInterface
@@ -99,7 +100,6 @@ class TestManipulationStation(unittest.TestCase):
         num_station_bodies = (
             station.get_multibody_plant().num_model_instances())
 
-        station.AddDefaultYcbObjects()
         station.Finalize()
 
         context = station.CreateDefaultContext()
@@ -118,8 +118,6 @@ class TestManipulationStation(unittest.TestCase):
         self.assertEqual(v, station.GetWsgVelocity(context))
 
         self.assertEqual(len(station.get_camera_names()), 1)
-        self.assertEqual(station.get_multibody_plant().num_model_instances(),
-                         num_station_bodies + 6)
 
     def test_iiwa_collision_model(self):
         # Check that all of the elements of the enum were spelled correctly.
@@ -132,3 +130,7 @@ class TestManipulationStation(unittest.TestCase):
         # Don't actually call Connect here, since it would block.
         station.get_controller_plant()
         self.assertEqual(len(station.get_camera_names()), 2)
+
+    def test_ycb_object_creation(self):
+        ycb_objects = CreateDefaultYcbObjectList()
+        self.assertEqual(len(ycb_objects), 6)

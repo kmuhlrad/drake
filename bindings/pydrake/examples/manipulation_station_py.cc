@@ -54,9 +54,6 @@ PYBIND11_MODULE(manipulation_station, m) {
           &ManipulationStation<T>::AddManipulandFromFile, py::arg("model_file"),
           py::arg("X_WObject"),
           doc.ManipulationStation.AddManipulandFromFile.doc)
-      .def("AddDefaultYcbObjects",
-          &ManipulationStation<T>::AddDefaultYcbObjects,
-          doc.ManipulationStation.AddDefaultYcbObjects.doc)
       .def("RegisterIiwaControllerModel",
           &ManipulationStation<T>::RegisterIiwaControllerModel,
           doc.ManipulationStation.RegisterIiwaControllerModel.doc)
@@ -179,6 +176,8 @@ PYBIND11_MODULE(manipulation_station, m) {
           &ManipulationStationHardwareInterface::get_camera_names,
           py_reference_internal,
           doc.ManipulationStationHardwareInterface.get_camera_names.doc);
+
+  ExecuteExtraPythonCode(m);
 }
 
 }  // namespace pydrake
