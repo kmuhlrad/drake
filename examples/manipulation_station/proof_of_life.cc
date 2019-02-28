@@ -45,9 +45,8 @@ int do_main(int argc, char* argv[]) {
     station->SetupClutterClearingStation(nullopt);
     station->AddManipulandFromFile(
         "drake/manipulation/models/ycb/sdf/003_cracker_box.sdf",
-        RigidTransform<double>(
-            RollPitchYaw<double>(-1.57, 0, 3),
-            Eigen::Vector3d(-0.3, -0.55, 0.36)));
+        RigidTransform<double>(RollPitchYaw<double>(-1.57, 0, 3),
+                               Eigen::Vector3d(-0.3, -0.55, 0.36)));
   } else if (FLAGS_setup == "default") {
     station->SetupDefaultStation();
   } else {
