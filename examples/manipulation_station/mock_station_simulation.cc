@@ -52,7 +52,7 @@ int do_main(int argc, char* argv[]) {
   if (FLAGS_setup == "default") {
     station->SetupDefaultStation();
   } else if (FLAGS_setup == "clutter_clearing") {
-    station->SetupClutterClearingStation();
+    station->SetupClutterClearingStation(nullopt);
   } else {
     DRAKE_ABORT_MSG("Unrecognized station type. Options are "
                     "{default, clutter_clearing}.");
