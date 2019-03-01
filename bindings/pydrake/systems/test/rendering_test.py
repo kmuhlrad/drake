@@ -14,17 +14,17 @@ import numpy as np
 
 from pydrake.common import FindResourceOrThrow
 from pydrake.geometry import SceneGraph
-from pydrake.multibody.multibody_tree.multibody_plant import MultibodyPlant
-from pydrake.multibody.multibody_tree.parsing import AddModelFromSdfFile
-from pydrake.multibody.multibody_tree.math import (
+from pydrake.multibody.plant import MultibodyPlant
+from pydrake.multibody.math import (
     SpatialVelocity,
 )
+from pydrake.multibody.parsing import Parser
 from pydrake.systems.framework import (
     AbstractValue,
     BasicVector,
     PortDataType,
 )
-from pydrake.util.eigen_geometry import (
+from pydrake.common.eigen_geometry import (
     Isometry3,
     Quaternion,
 )
@@ -151,6 +151,8 @@ class TestRendering(unittest.TestCase):
         self.assertEqual(port3.get_data_type(), PortDataType.kAbstractValued)
 
         # - CalcOutput.
+        self.assertEqual(aggregator.get_output_port(0).get_data_type(),
+                         PortDataType.kAbstractValued)
         context = aggregator.CreateDefaultContext()
         output = aggregator.AllocateOutput()
 
@@ -197,8 +199,7 @@ class TestRendering(unittest.TestCase):
         file_name = FindResourceOrThrow(
             "drake/multibody/benchmarks/acrobot/acrobot.sdf")
         plant = MultibodyPlant(time_step=0.01)
-        model_instance = AddModelFromSdfFile(
-            file_name=file_name, plant=plant)
+        model_instance = Parser(plant).AddModelFromFile(file_name)
         scene_graph = SceneGraph()
         plant.RegisterAsSourceForSceneGraph(scene_graph)
         plant.Finalize()

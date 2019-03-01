@@ -12,7 +12,7 @@ namespace drake {
 namespace manipulation {
 namespace planner {
 
-namespace {
+namespace detail {
 DifferentialInverseKinematicsResult DoDifferentialInverseKinematics(
     const Eigen::Ref<const VectorX<double>>& q_current,
     const Eigen::Ref<const VectorX<double>>& v_current,
@@ -44,7 +44,7 @@ DifferentialInverseKinematicsResult DoDifferentialInverseKinematics(
       q_current, v_current, V_WE_E_scaled.head(num_cart_constraints),
       J_WE_E_scaled.topRows(num_cart_constraints), parameters);
 }
-}  // namespace
+}  // namespace detail
 
 std::ostream& operator<<(std::ostream& os,
                          const DifferentialInverseKinematicsStatus value) {
@@ -55,9 +55,8 @@ std::ostream& operator<<(std::ostream& os,
       return os << "No solution found.";
     case (DifferentialInverseKinematicsStatus::kStuck):
       return os << "Stuck!";
-    default:
-      DRAKE_ABORT();
   }
+  DRAKE_UNREACHABLE();
 }
 
 const std::vector<std::shared_ptr<solvers::LinearConstraint>>&
@@ -210,129 +209,62 @@ DifferentialInverseKinematicsResult DoDifferentialInverseKinematics(
 
   // Solve
   solvers::OsqpSolver solver;
-  DRAKE_THROW_UNLESS(solver.available());
-  solvers::SolutionResult result = solver.Solve(prog);
+  solvers::MathematicalProgramResult result = solver.Solve(prog, {}, {});
 
-  if (result != solvers::SolutionResult::kSolutionFound) {
+  if (!result.is_success()) {
     return {nullopt, DifferentialInverseKinematicsStatus::kNoSolutionFound};
   }
 
   if (num_cart_constraints) {
     VectorX<double> cost(1);
-    cart_cost->Eval(prog.GetSolution(alpha), &cost);
+    cart_cost->Eval(result.GetSolution(alpha), &cost);
     const double kMaxTrackingError = 5;
     const double kMinEndEffectorVel = 1e-2;
     if (cost(0) > kMaxTrackingError &&
-        prog.GetSolution(alpha)[0] <= kMinEndEffectorVel) {
+        result.GetSolution(alpha)[0] <= kMinEndEffectorVel) {
       // Not tracking the desired vel norm (large tracking error) and the
       // computed vel is small.
-      log()->info("v_next = {}", prog.GetSolution(v_next).transpose());
-      log()->info("alpha = {}", prog.GetSolution(alpha).transpose());
+      log()->info("v_next = {}", result.GetSolution(v_next).transpose());
+      log()->info("alpha = {}", result.GetSolution(alpha).transpose());
       return {nullopt, DifferentialInverseKinematicsStatus::kStuck};
     }
   }
 
-  return {prog.GetSolution(v_next),
+  return {result.GetSolution(v_next),
           DifferentialInverseKinematicsStatus::kSolutionFound};
 }
 
 DifferentialInverseKinematicsResult DoDifferentialInverseKinematics(
-    const RigidBodyTree<double>& robot, const KinematicsCache<double>& cache,
-    const Isometry3<double>& X_WE_desired,
-    const RigidBodyFrame<double>& frame_E,
-    const DifferentialInverseKinematicsParameters& parameters) {
-  const Isometry3<double> X_WE =
-      robot.CalcFramePoseInWorldFrame(cache, frame_E);
-  const Vector6<double> V_WE_desired =
-      ComputePoseDiffInCommonFrame(X_WE, X_WE_desired) /
-      parameters.get_timestep();
-  return DoDifferentialInverseKinematics(robot, cache, V_WE_desired, frame_E,
-                                         parameters);
-}
-
-DifferentialInverseKinematicsResult DoDifferentialInverseKinematics(
-    const RigidBodyTree<double>& robot, const KinematicsCache<double>& cache,
-    const Vector6<double>& V_WE_desired, const RigidBodyFrame<double>& frame_E,
-    const DifferentialInverseKinematicsParameters& parameters) {
-  Isometry3<double> X_WE = robot.CalcFramePoseInWorldFrame(cache, frame_E);
-  MatrixX<double> J_WE =
-      robot.CalcFrameSpatialVelocityJacobianInWorldFrame(cache, frame_E);
-  return DoDifferentialInverseKinematics(cache.getQ(), cache.getV(), X_WE, J_WE,
-                                         V_WE_desired, parameters);
-}
-
-DifferentialInverseKinematicsResult DoDifferentialInverseKinematics(
-    const multibody::multibody_plant::MultibodyPlant<double>& plant,
+    const multibody::MultibodyPlant<double>& plant,
     const systems::Context<double>& context,
     const Vector6<double>& V_WE_desired,
     const multibody::Frame<double>& frame_E,
     const DifferentialInverseKinematicsParameters& parameters) {
-  const multibody::MultibodyTree<double>& robot = plant.tree();
   const Isometry3<double> X_WE =
-      robot.CalcRelativeTransform(context, robot.world_frame(), frame_E);
-  MatrixX<double> J_WE(6, robot.num_velocities());
-  robot.CalcFrameGeometricJacobianExpressedInWorld(
+      plant.CalcRelativeTransform(context, plant.world_frame(), frame_E);
+  MatrixX<double> J_WE(6, plant.num_velocities());
+  plant.CalcFrameGeometricJacobianExpressedInWorld(
       context, frame_E, Vector3<double>::Zero(), &J_WE);
 
-  const auto& mbt_context =
-      dynamic_cast<const multibody::MultibodyTreeContext<double>&>(context);
-  return DoDifferentialInverseKinematics(mbt_context.get_positions(),
-                                         mbt_context.get_velocities(), X_WE,
-                                         J_WE, V_WE_desired, parameters);
+  return detail::DoDifferentialInverseKinematics(
+      plant.GetPositions(context), plant.GetVelocities(context),
+      X_WE, J_WE, V_WE_desired, parameters);
 }
 
 DifferentialInverseKinematicsResult DoDifferentialInverseKinematics(
-    const multibody::multibody_plant::MultibodyPlant<double>& plant,
+    const multibody::MultibodyPlant<double>& plant,
     const systems::Context<double>& context,
     const Isometry3<double>& X_WE_desired,
     const multibody::Frame<double>& frame_E,
     const DifferentialInverseKinematicsParameters& parameters) {
   const Isometry3<double> X_WE =
-      plant.tree().EvalBodyPoseInWorld(context, frame_E.body()) *
+      plant.EvalBodyPoseInWorld(context, frame_E.body()) *
       frame_E.CalcPoseInBodyFrame(context);
   const Vector6<double> V_WE_desired =
       ComputePoseDiffInCommonFrame(X_WE, X_WE_desired) /
       parameters.get_timestep();
   return DoDifferentialInverseKinematics(plant, context, V_WE_desired, frame_E,
                                          parameters);
-}
-
-DifferentialInverseKinematicsResult DoDifferentialInverseKinematics(
-    const multibody::MultibodyTree<double>& robot,
-    const systems::Context<double>& context,
-    const Vector6<double>& V_WE_desired,
-    const multibody::Frame<double>& frame_E,
-    const DifferentialInverseKinematicsParameters& parameters) {
-  const Isometry3<double> X_WE =
-      robot.CalcRelativeTransform(context, robot.world_frame(), frame_E);
-  MatrixX<double> J_WE(6, robot.num_velocities());
-  robot.CalcFrameGeometricJacobianExpressedInWorld(
-      context, frame_E, Vector3<double>::Zero(), &J_WE);
-
-  const auto& mbt_context =
-      dynamic_cast<const multibody::MultibodyTreeContext<double>&>(context);
-  return DoDifferentialInverseKinematics(mbt_context.get_positions(),
-                                         mbt_context.get_velocities(), X_WE,
-                                         J_WE, V_WE_desired, parameters);
-}
-
-DifferentialInverseKinematicsResult DoDifferentialInverseKinematics(
-    const multibody::MultibodyTree<double>& robot,
-    const systems::Context<double>& context,
-    const Isometry3<double>& X_WE_desired,
-    const multibody::Frame<double>& frame_E,
-    const DifferentialInverseKinematicsParameters& parameters) {
-  const Isometry3<double> X_WE =
-      robot.EvalBodyPoseInWorld(context, frame_E.body()) *
-      frame_E.CalcPoseInBodyFrame(context);
-  const Vector6<double> V_WE_desired =
-      ComputePoseDiffInCommonFrame(X_WE, X_WE_desired) /
-      parameters.get_timestep();
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-  return DoDifferentialInverseKinematics(robot, context, V_WE_desired, frame_E,
-                                         parameters);
-#pragma GCC diagnostic pop  // pop -Wdeprecated-declarations
 }
 
 }  // namespace planner

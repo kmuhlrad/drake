@@ -8,6 +8,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "drake/common/random.h"
 #include "drake/common/test_utilities/expect_throws_message.h"
 #include "drake/common/unused.h"
 #include "drake/systems/framework/basic_vector.h"
@@ -42,9 +43,9 @@ class TestSystem : public System<double> {
     this->set_name("TestSystem");
   }
 
-  // Implementation is required, but unused here.
   int get_num_continuous_states() const final {
-    DRAKE_ABORT();
+    ADD_FAILURE() << "Implementation is required, but unused here.";
+    return {};
   }
 
   ~TestSystem() override {}
@@ -80,7 +81,7 @@ class TestSystem : public System<double> {
         [](const ContextBase&, AbstractValue*) {});
     // TODO(sherm1) Use implicit_cast when available (from abseil). Several
     // places in this test.
-    auto port = std::make_unique<LeafOutputPort<double>>(
+    auto port = internal::FrameworkFactory::Make<LeafOutputPort<double>>(
         this,  // implicit_cast<const System<T>*>(this)
         this,  // implicit_cast<const SystemBase*>(this)
         "y" + std::to_string(get_num_output_ports()),
@@ -114,15 +115,14 @@ class TestSystem : public System<double> {
 
   double DoCalcWitnessValue(const Context<double>&,
                             const WitnessFunction<double>&) const override {
-    // This system uses no witness functions.
-    DRAKE_ABORT();
+    ADD_FAILURE() << "This system uses no witness functions.";
+    return {};
   }
 
   void AddTriggeredWitnessFunctionToCompositeEventCollection(
       Event<double>*,
       CompositeEventCollection<double>*) const override {
-    // This system uses no witness functions.
-    DRAKE_ABORT();
+    ADD_FAILURE() << "This system uses no witness functions.";
   }
 
   // The default publish function.
@@ -168,7 +168,7 @@ class TestSystem : public System<double> {
       const Context<double>&,
       const EventCollection<UnrestrictedUpdateEvent<double>>&,
       State<double>*) const final {
-    DRAKE_ABORT_MSG("test should not get here");
+    ADD_FAILURE() << "Implementation is required, but unused here.";
   }
 
   // Sets up an arbitrary mapping from the current time to the next discrete
@@ -179,11 +179,11 @@ class TestSystem : public System<double> {
     *time = context.get_time() + 1;
 
     if (context.get_time() < 10.0) {
-      PublishEvent<double> event(Event<double>::TriggerType::kPeriodic);
-      event.add_to_composite(event_info);
+      PublishEvent<double> event(TriggerType::kPeriodic);
+      event.AddToComposite(event_info);
     } else {
-      DiscreteUpdateEvent<double> event(Event<double>::TriggerType::kPeriodic);
-      event.add_to_composite(event_info);
+      DiscreteUpdateEvent<double> event(TriggerType::kPeriodic);
+      event.AddToComposite(event_info);
     }
   }
 
@@ -298,7 +298,7 @@ TEST_F(SystemTest, DiscretePublish) {
           event_info.get())->get_publish_events().get_events();
   EXPECT_EQ(events.size(), 1);
   EXPECT_EQ(events.front()->get_trigger_type(),
-            Event<double>::TriggerType::kPeriodic);
+            TriggerType::kPeriodic);
 
   system_.Publish(context_, event_info->get_publish_events());
   EXPECT_EQ(1, system_.get_publish_count());
@@ -382,14 +382,16 @@ TEST_F(SystemTest, SystemConstraintTest) {
   EXPECT_THROW(system_.get_constraint(SystemConstraintIndex(0)),
                std::out_of_range);
 
-  SystemConstraint<double>::CalcCallback calc = [](
+  ContextConstraintCalc<double> calc = [](
       const Context<double>& context, Eigen::VectorXd* value) {
     unused(context);
     (*value)[0] = 1.0;
   };
+  const double kInf = std::numeric_limits<double>::infinity();
   SystemConstraintIndex test_constraint =
       system_.AddConstraint(std::make_unique<SystemConstraint<double>>(
-          calc, 1, SystemConstraintType::kInequality, "test"));
+          &system_, calc, SystemConstraintBounds(Vector1d(0), nullopt),
+          "test"));
   EXPECT_EQ(test_constraint, 0);
 
   EXPECT_NO_THROW(system_.get_constraint(test_constraint));
@@ -397,13 +399,14 @@ TEST_F(SystemTest, SystemConstraintTest) {
 
   const double tol = 1e-6;
   EXPECT_TRUE(system_.CheckSystemConstraintsSatisfied(context_, tol));
-  SystemConstraint<double>::CalcCallback calc_false = [](
+  ContextConstraintCalc<double> calc_false = [](
       const Context<double>& context, Eigen::VectorXd* value) {
     unused(context);
     (*value)[0] = -1.0;
   };
   system_.AddConstraint(std::make_unique<SystemConstraint<double>>(
-      calc_false, 1, SystemConstraintType::kInequality, "bad constraint"));
+      &system_, calc_false, SystemConstraintBounds(Vector1d(0), Vector1d(kInf)),
+      "bad constraint"));
   EXPECT_FALSE(system_.CheckSystemConstraintsSatisfied(context_, tol));
 }
 
@@ -460,7 +463,7 @@ class ValueIOTestSystem : public System<T> {
 
     this->DeclareInputPort(kUseDefaultName, kAbstractValued, 0);
 
-    this->AddOutputPort(std::make_unique<LeafOutputPort<T>>(
+    this->AddOutputPort(internal::FrameworkFactory::Make<LeafOutputPort<T>>(
         this,  // implicit_cast<const System<T>*>(this)
         this,  // implicit_cast<const SystemBase*>(this)
         "absport",
@@ -478,7 +481,7 @@ class ValueIOTestSystem : public System<T> {
                            RandomDistribution::kUniform);
     this->DeclareInputPort("gaussian", kVectorValued, 1,
                            RandomDistribution::kGaussian);
-    this->AddOutputPort(std::make_unique<LeafOutputPort<T>>(
+    this->AddOutputPort(internal::FrameworkFactory::Make<LeafOutputPort<T>>(
         this,  // implicit_cast<const System<T>*>(this)
         this,  // implicit_cast<const SystemBase*>(this)
         "vecport",
@@ -495,24 +498,23 @@ class ValueIOTestSystem : public System<T> {
     this->set_name("ValueIOTestSystem");
   }
 
-  // Implementation is required, but unused here.
   int get_num_continuous_states() const final {
-    DRAKE_ABORT();
+    ADD_FAILURE() << "Implementation is required, but unused here.";
+    return {};
   }
 
     ~ValueIOTestSystem() override {}
 
   T DoCalcWitnessValue(const Context<T>&,
                        const WitnessFunction<T>&) const override {
-    // This system uses no witness functions.
-    DRAKE_ABORT();
+    ADD_FAILURE() << "This system uses no witness functions.";
+    return {};
   }
 
   void AddTriggeredWitnessFunctionToCompositeEventCollection(
       Event<T>*,
       CompositeEventCollection<T>*) const override {
-    // This system uses no witness functions.
-    DRAKE_ABORT();
+    ADD_FAILURE() << "This system uses no witness functions.";
   }
 
   std::unique_ptr<AbstractValue> DoAllocateInput(
@@ -578,21 +580,21 @@ class ValueIOTestSystem : public System<T> {
   void DispatchPublishHandler(
       const Context<T>& context,
       const EventCollection<PublishEvent<T>>& event_info) const final {
-    DRAKE_ABORT_MSG("test should not get here");
+    ADD_FAILURE() << "Implementation is required, but unused here.";
   }
 
   void DispatchDiscreteVariableUpdateHandler(
       const Context<T>& context,
       const EventCollection<DiscreteUpdateEvent<T>>& event_info,
       DiscreteValues<T>* discrete_state) const final {
-    DRAKE_ABORT_MSG("test should not get here");
+    ADD_FAILURE() << "Implementation is required, but unused here.";
   }
 
   void DispatchUnrestrictedUpdateHandler(
       const Context<T>& context,
       const EventCollection<UnrestrictedUpdateEvent<T>>& event_info,
       State<T>* state) const final {
-    DRAKE_ABORT_MSG("test should not get here");
+    ADD_FAILURE() << "Implementation is required, but unused here.";
   }
 
   std::unique_ptr<EventCollection<PublishEvent<T>>>
@@ -686,8 +688,8 @@ TEST_F(SystemInputErrorTest, CheckMessages) {
 
   DRAKE_EXPECT_THROWS_MESSAGE_IF_ARMED(
       system_.EvalEigenVectorInput(*context_, 1), std::logic_error,
-      ".*EvalEigenVectorInput.*input port\\[1\\].*neither connected nor "
-          "fixed.*");
+      ".*EvalEigenVectorInput.*input port 'u1' .*index 1.* is neither "
+      "connected nor fixed.*");
 
   // Assign values to all ports. All but port 0 are BasicVector ports.
   system_.AllocateFixedInputs(context_.get());
@@ -839,9 +841,9 @@ class ComputationTestSystem final : public System<double> {
     EXPECT_EQ(pnc, pnc_count_);
   }
 
-  // Implementation is required, but unused here.
   int get_num_continuous_states() const final {
-    DRAKE_ABORT();
+    ADD_FAILURE() << "Implementation is required, but unused here.";
+    return {};
   }
 
  private:
@@ -912,11 +914,12 @@ class ComputationTestSystem final : public System<double> {
   std::multimap<int, int> GetDirectFeedthroughs() const final { return {}; }
   double DoCalcWitnessValue(const Context<double>&,
                             const WitnessFunction<double>&) const final {
-    DRAKE_ABORT_MSG("test should not get here");
+    ADD_FAILURE() << "Implementation is required, but unused here.";
+    return {};
   }
   void AddTriggeredWitnessFunctionToCompositeEventCollection(
       Event<double>*, CompositeEventCollection<double>*) const final {
-    DRAKE_ABORT_MSG("test should not get here");
+    ADD_FAILURE() << "Implementation is required, but unused here.";
   }
   std::unique_ptr<AbstractValue> DoAllocateInput(
       const InputPort<double>&) const final {
@@ -925,19 +928,19 @@ class ComputationTestSystem final : public System<double> {
   void DispatchPublishHandler(
       const Context<double>& context,
       const EventCollection<PublishEvent<double>>& events) const final {
-    DRAKE_ABORT_MSG("test should not get here");
+    ADD_FAILURE() << "Implementation is required, but unused here.";
   }
   void DispatchDiscreteVariableUpdateHandler(
       const Context<double>& context,
       const EventCollection<DiscreteUpdateEvent<double>>& events,
       DiscreteValues<double>* discrete_state) const final {
-    DRAKE_ABORT_MSG("test should not get here");
+    ADD_FAILURE() << "Implementation is required, but unused here.";
   }
   void DispatchUnrestrictedUpdateHandler(
       const Context<double>&,
       const EventCollection<UnrestrictedUpdateEvent<double>>&,
       State<double>*) const final {
-    DRAKE_ABORT_MSG("test should not get here");
+    ADD_FAILURE() << "Implementation is required, but unused here.";
   }
   std::map<PeriodicEventData, std::vector<const Event<double>*>,
            PeriodicEventDataComparator>

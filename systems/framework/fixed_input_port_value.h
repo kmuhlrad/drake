@@ -10,9 +10,9 @@
 #include "drake/common/drake_copyable.h"
 #include "drake/common/drake_deprecated.h"
 #include "drake/common/reset_on_copy.h"
+#include "drake/common/value.h"
 #include "drake/systems/framework/basic_vector.h"
 #include "drake/systems/framework/framework_common.h"
-#include "drake/systems/framework/value.h"
 
 namespace drake {
 namespace systems {
@@ -155,10 +155,6 @@ class FixedInputPortValue {
   // should have registered with this tracker.
   DependencyTicket ticket_;
 };
-
-// TODO(sherm1) Get rid of this after 8/7/2018 (three months).
-DRAKE_DEPRECATED("Please use FixedInputPortValue instead.")
-typedef FixedInputPortValue FreestandingInputPortValue;
 
 #ifndef DRAKE_DOXYGEN_CXX
 namespace detail {

@@ -3,7 +3,9 @@
 /// @file This file contains classes dealing with sending/receiving
 /// LCM messages related to the Schunk WSG gripper.
 
-#include "drake/common/drake_deprecated.h"
+#include <memory>
+#include <vector>
+
 #include "drake/lcmt_schunk_wsg_command.hpp"
 #include "drake/lcmt_schunk_wsg_status.hpp"
 #include "drake/systems/framework/leaf_system.h"
@@ -12,14 +14,18 @@ namespace drake {
 namespace manipulation {
 namespace schunk_wsg {
 
-/// Handles lcmt_schunk_wsg_command messages from a LcmSubscriberSystem.  Has
-/// two output ports: one for the commanded finger position represented as the
-/// desired distance between the fingers in meters, and one for the commanded
-/// force limit.  The commanded position and force limit are scalars
+/// Handles the command for the Schunk WSG gripper from a LcmSubscriberSystem.
+///
+/// It has one input port: "command_message" for lcmt_schunk_wsg_command
+/// abstract values.
+///
+/// It has two output ports: one for the commanded finger position represented
+/// as the desired distance between the fingers in meters, and one for the
+/// commanded force limit.  The commanded position and force limit are scalars
 /// (BasicVector<double> of size 1).
 ///
 /// @system{ SchunkWsgCommandReceiver,
-///   @input_port{lcmt_schunk_wsg_command},
+///   @input_port{command_message},
 ///   @output_port{position}
 ///   @output_port{force_limit} }
 class SchunkWsgCommandReceiver : public systems::LeafSystem<double> {
@@ -34,16 +40,12 @@ class SchunkWsgCommandReceiver : public systems::LeafSystem<double> {
   SchunkWsgCommandReceiver(double initial_position = 0.02,
                            double initial_force = 40);
 
-  const systems::InputPort<double>& get_command_input_port() const {
-    return this->get_input_port(0);
-  }
-
   const systems::OutputPort<double>& get_position_output_port() const {
-    return this->get_output_port(position_output_port_);
+    return this->GetOutputPort("position");
   }
 
   const systems::OutputPort<double>& get_force_limit_output_port() const {
-    return this->get_output_port(force_limit_output_port_);
+    return this->GetOutputPort("force_limit");
   }
 
  private:
@@ -53,11 +55,8 @@ class SchunkWsgCommandReceiver : public systems::LeafSystem<double> {
   void CalcForceLimitOutput(const systems::Context<double>& context,
                             systems::BasicVector<double>* output) const;
 
- private:
   const double initial_position_{};
   const double initial_force_{};
-  const systems::OutputPortIndex position_output_port_{};
-  const systems::OutputPortIndex force_limit_output_port_{};
 };
 
 
@@ -165,22 +164,6 @@ class SchunkWsgStatusReceiver : public systems::LeafSystem<double> {
 /// @ingroup manipulation_systems
 class SchunkWsgStatusSender : public systems::LeafSystem<double> {
  public:
-  SchunkWsgStatusSender(int input_state_size, int input_torque_size,
-                        int position_index, int velocity_index);
-
-  DRAKE_DEPRECATED(
-      "Use get_state_input_port() instead which takes a "
-      "two-dimensional BasicVector<double>.")
-  const systems::InputPort<double>& get_input_port_wsg_state() const {
-    DRAKE_DEMAND(input_port_wsg_state_.is_valid());
-    return this->get_input_port(input_port_wsg_state_);
-  }
-
-  DRAKE_DEPRECATED("Use get_force_input_port() instead.")
-  const systems::InputPort<double>& get_input_port_measured_torque() {
-    return this->get_input_port(force_input_port_);
-  }
-
   SchunkWsgStatusSender();
 
   const systems::InputPort<double>& get_state_input_port() const {
@@ -198,11 +181,6 @@ class SchunkWsgStatusSender : public systems::LeafSystem<double> {
 
   systems::InputPortIndex state_input_port_{};
   systems::InputPortIndex force_input_port_{};
-
-  // TODO(russt): Remove this port after the deprecation timeline.
-  const int position_index_{};
-  const int velocity_index_{};
-  systems::InputPortIndex input_port_wsg_state_{};
 };
 
 }  // namespace schunk_wsg

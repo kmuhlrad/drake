@@ -11,6 +11,7 @@
 #include <utility>
 #include <vector>
 
+#include "drake/common/default_scalars.h"
 #include "drake/common/drake_assert.h"
 #include "drake/common/drake_copyable.h"
 #include "drake/common/drake_throw.h"
@@ -83,6 +84,9 @@ class DiagramBuilder {
   ///
   ///
   /// @tparam S The type of System to construct. Must subclass System<T>.
+  ///
+  /// @exclude_from_pydrake_mkdoc{Not bound in pydrake -- emplacement while
+  /// specifying <T> doesn't make sense for that language.}
   template<class S, typename... Args>
   S* AddSystem(Args&&... args) {
     return AddSystem(std::make_unique<S>(std::forward<Args>(args)...));
@@ -110,6 +114,9 @@ class DiagramBuilder {
   ///
   /// @tparam S A template for the type of System to construct. The template
   /// will be specialized on the scalar type T of this builder.
+  ///
+  /// @exclude_from_pydrake_mkdoc{Not bound in pydrake -- emplacement while
+  /// specifying <T> doesn't make sense for that language.}
   template<template<typename Scalar> class S, typename... Args>
   S<T>* AddSystem(Args&&... args) {
     return AddSystem(std::make_unique<S<T>>(std::forward<Args>(args)...));
@@ -129,12 +136,18 @@ class DiagramBuilder {
   }
 
   /// Declares that input port @p dest is connected to output port @p src.
+  /// @note The connection created between @p src and @p dest via a call to
+  /// this method can be effectively overridden by any subsequent call to
+  /// Context::FixInputPort(). That is, calling Context::FixInputPort() on an
+  /// already connected input port causes the resultant
+  /// FixedInputPortValue to override any other value present on that
+  /// port.
   void Connect(const OutputPort<T>& src,
                const InputPort<T>& dest) {
-    InputPortLocator dest_id{dest.get_system(), dest.get_index()};
+    InputPortLocator dest_id{&dest.get_system(), dest.get_index()};
     OutputPortLocator src_id{&src.get_system(), src.get_index()};
     ThrowIfSystemNotRegistered(&src.get_system());
-    ThrowIfSystemNotRegistered(dest.get_system());
+    ThrowIfSystemNotRegistered(&dest.get_system());
     ThrowIfInputAlreadyWired(dest_id);
     if (src.get_data_type() != dest.get_data_type()) {
       throw std::logic_error(fmt::format(
@@ -142,7 +155,7 @@ class DiagramBuilder {
           "valued ports while connecting output port {} of System {} to "
           "input port {} of System {}",
           src.get_name(), src.get_system().get_name(),
-          dest.get_name(), dest.get_system()->get_name()));
+          dest.get_name(), dest.get_system().get_name()));
     }
     if ((src.get_data_type() != kAbstractValued) &&
         (src.size() != dest.size())) {
@@ -151,11 +164,11 @@ class DiagramBuilder {
           "output port {} of System {} (size {}) to "
           "input port {} of System {} (size {})",
           src.get_name(), src.get_system().get_name(), src.size(),
-          dest.get_name(), dest.get_system()->get_name(), dest.size()));
+          dest.get_name(), dest.get_system().get_name(), dest.size()));
     }
     if (src.get_data_type() == kAbstractValued) {
       auto model_output = src.Allocate();
-      auto model_input = dest.get_system()->AllocateInputAbstract(dest);
+      auto model_input = dest.get_system().AllocateInputAbstract(dest);
       const std::type_info& output_type = model_output->static_type_info();
       const std::type_info& input_type = model_input->static_type_info();
       if (output_type != input_type) {
@@ -165,7 +178,7 @@ class DiagramBuilder {
             "input port {} of System {} (type {})",
             src.get_name(), src.get_system().get_name(),
             NiceTypeName::Get(output_type),
-            dest.get_name(), dest.get_system()->get_name(),
+            dest.get_name(), dest.get_system().get_name(),
             NiceTypeName::Get(input_type)));
       }
     }
@@ -174,9 +187,17 @@ class DiagramBuilder {
 
   /// Declares that sole input port on the @p dest system is connected to sole
   /// output port on the @p src system.
+  /// @note The connection created between @p src and @p dest via a call to
+  /// this method can be effectively overridden by any subsequent call to
+  /// Context::FixInputPort(). That is, calling Context::FixInputPort() on an
+  /// already connected input port causes the resultant
+  /// FixedInputPortValue to override any other value present on that
+  /// port.
   /// @throws std::exception if the sole-port precondition is not met (i.e.,
   /// if @p dest has no input ports, or @p dest has more than one input port,
   /// or @p src has no output ports, or @p src has more than one output port).
+  ///
+  /// @exclude_from_pydrake_mkdoc{Not bound in pydrake.}
   void Connect(const System<T>& src, const System<T>& dest) {
     DRAKE_THROW_UNLESS(src.get_num_output_ports() == 1);
     DRAKE_THROW_UNLESS(dest.get_num_input_ports() == 1);
@@ -197,12 +218,12 @@ class DiagramBuilder {
   /// if it is unspecified, then a default name will be provided.
   /// @pre If supplied at all, @p name must not be empty.
   /// @return The index of the exported input port of the entire diagram.
-  InputPortIndex ExportInput(const InputPort<T>& input,
-                             std::string name = kUseDefaultName) {
-    DRAKE_DEMAND(!name.empty());
-    InputPortLocator id{input.get_system(), input.get_index()};
+  InputPortIndex ExportInput(
+      const InputPort<T>& input,
+      variant<std::string, UseDefaultName> name = kUseDefaultName) {
+    InputPortLocator id{&input.get_system(), input.get_index()};
     ThrowIfInputAlreadyWired(id);
-    ThrowIfSystemNotRegistered(input.get_system());
+    ThrowIfSystemNotRegistered(&input.get_system());
     InputPortIndex return_id(input_port_ids_.size());
     input_port_ids_.push_back(id);
 
@@ -210,8 +231,9 @@ class DiagramBuilder {
     // of the port names.
     std::string port_name =
         name == kUseDefaultName
-            ? input.get_system()->get_name() + "_" + input.get_name()
-            : std::move(name);
+            ? input.get_system().get_name() + "_" + input.get_name()
+            : get<std::string>(std::move(name));
+    DRAKE_DEMAND(!port_name.empty());
     input_port_names_.emplace_back(std::move(port_name));
 
     diagram_input_set_.insert(id);
@@ -223,8 +245,9 @@ class DiagramBuilder {
   /// port; if it is unspecified, then a default name will be provided.
   /// @pre If supplied at all, @p name must not be empty.
   /// @return The index of the exported output port of the entire diagram.
-  OutputPortIndex ExportOutput(const OutputPort<T>& output,
-                               std::string name = kUseDefaultName) {
+  OutputPortIndex ExportOutput(
+      const OutputPort<T>& output,
+      variant<std::string, UseDefaultName> name = kUseDefaultName) {
     ThrowIfSystemNotRegistered(&output.get_system());
     OutputPortIndex return_id(output_port_ids_.size());
     output_port_ids_.push_back(
@@ -235,7 +258,8 @@ class DiagramBuilder {
     std::string port_name =
         name == kUseDefaultName
             ? output.get_system().get_name() + "_" + output.get_name()
-            : std::move(name);
+            : get<std::string>(std::move(name));
+    DRAKE_DEMAND(!port_name.empty());
     output_port_names_.emplace_back(std::move(port_name));
 
     return return_id;
@@ -456,3 +480,6 @@ class DiagramBuilder {
 
 }  // namespace systems
 }  // namespace drake
+
+DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
+    class ::drake::systems::DiagramBuilder)

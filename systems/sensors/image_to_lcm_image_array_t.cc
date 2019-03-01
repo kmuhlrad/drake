@@ -8,7 +8,6 @@
 #include "robotlocomotion/image_array_t.hpp"
 #include "robotlocomotion/image_t.hpp"
 
-#include "drake/systems/sensors/image.h"
 #include "drake/systems/sensors/lcm_image_traits.h"
 
 using std::string;
@@ -130,7 +129,7 @@ void PackImageToLcmImageT(const AbstractValue& untyped_image,
       break;
     }
     case PixelType::kExpr:
-      DRAKE_ABORT_MSG("PixelType::kExpr is not supported.");
+      throw std::domain_error("PixelType::kExpr is not supported.");
   }
 }
 
@@ -158,14 +157,6 @@ ImageToLcmImageArrayT::ImageToLcmImageArrayT(const string& color_frame_name,
   image_array_t_msg_output_port_index_ =
       DeclareAbstractOutputPort(&ImageToLcmImageArrayT::CalcImageArray)
           .get_index();
-}
-
-template <PixelType kPixelType>
-const InputPort<double>& ImageToLcmImageArrayT::DeclareImageInputPort(
-    const std::string& name) {
-  input_port_pixel_type_.push_back(kPixelType);
-  return this->DeclareAbstractInputPort(name,
-                                        systems::Value<Image<kPixelType>>());
 }
 
 const InputPort<double>& ImageToLcmImageArrayT::color_image_input_port() const {
@@ -196,10 +187,11 @@ void ImageToLcmImageArrayT::CalcImageArray(
   msg->images.clear();
 
   for (int i = 0; i < get_num_input_ports(); i++) {
-    const AbstractValue* image_value = this->EvalAbstractInput(context, i);
+    const auto& image_value = this->get_input_port(i).
+        template Eval<AbstractValue>(context);
 
     image_t image_msg;
-    PackImageToLcmImageT(*image_value, input_port_pixel_type_[i],
+    PackImageToLcmImageT(image_value, input_port_pixel_type_[i],
                          msg->header.utime, this->get_input_port(i).get_name(),
                          &image_msg, do_compress_);
     msg->images.push_back(image_msg);

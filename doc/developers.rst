@@ -80,30 +80,56 @@ supported for CMake builds using the "Unix Makefiles" generator.
 | Operating System                 | Build System    | C/C++ Compiler  | Java       | MATLAB (Optional) | Python |
 +==================================+=================+=================+============+===================+========+
 +----------------------------------+-----------------+-----------------+------------+-------------------+--------+
-| Ubuntu 16.04 LTS (Xenial Xerus)  | | Bazel 0.18.0  | | Clang 6.0     | OpenJDK 8  | R2017a            | 2.7.11 |
+| Ubuntu 16.04 LTS (Xenial Xerus)  | | Bazel 0.22    | | Clang 6.0     | OpenJDK 8  | R2017a            | 2.7.11 |
 |                                  | | CMake 3.5.1   | | GCC 5.4       |            |                   |        |
 +----------------------------------+-----------------+-----------------+------------+-------------------+--------+
-| Ubuntu 18.04 LTS (Bionic Beaver) | | Bazel 0.18.0  | | Clang 6.0     | OpenJDK 11 | R2018b            | 2.7.15 |
-|                                  | | CMake 3.10.2  | | GCC 7.3       |            |                   |        |
-+----------------------------------+-----------------+-----------------+------------+                   |        |
-| macOS High Sierra (10.13)        | | Bazel 0.18.0  | Apple LLVM 10.0 | Oracle 11  |                   |        |
-+----------------------------------+ | CMake 3.12.3  |                 |            |                   |        |
+| Ubuntu 18.04 LTS (Bionic Beaver) | | Bazel 0.22    | | Clang 6.0     | OpenJDK 11 | R2018b            | 2.7.15 |
+|                                  | | CMake 3.10.2  | | GCC 7.3       |            |                   | 3.6.7  |
++----------------------------------+-----------------+-----------------+------------+                   +--------+
+| macOS High Sierra (10.13)        | | Bazel 0.22    | Apple LLVM 10.0 | Oracle 11  |                   | 2.7.15 |
++----------------------------------+ | CMake 3.13.2  |                 |            |                   | 3.7.2  |
 | macOS Mojave (10.14)             |                 |                 |            |                   |        |
 +----------------------------------+-----------------+-----------------+------------+-------------------+--------+
 
 
-Ubuntu Bionic C++ and Python support is experimental and has limited testing
-in continuous integration. macOS Mojave C++ and Python support and macOS and
-Ubuntu Bionic MATLAB support is experimental and untested in continuous
-integration.
+CPython is the only Python implementation supported. On all platforms, Python 2
+is the default version. On Ubuntu, amd64 (i.e., x86_64) is the only supported
+architecture.
+
+The following configurations are presently untested in continuous integration:
+
+-   macOS Mojave: C++, Python
+-   macOS, Ubuntu Bionic: MATLAB
+
+.. _configuration-management-non-determinism:
+
+Configuration Management Non-Determinism
+----------------------------------------
+
+The indicated versions for build systems and languages are recorded after
+having been tested on Continuous Integration.
+
+Due to how the Debian ``apt`` and Homebrew package managers work, you may not
+have these exact versions on your system when (re)running
+``install_prereqs.sh``. In general, later minor versions for more stable
+packages (e.g. CMake, compilers) should not prove to be too much of an issue.
+
+For less stable packages, such as Bazel, later minor versions may cause
+breakages. If you are on Ubuntu, please rerun ``install_prereqs.sh`` as it can
+downgrade Bazel. If on Mac, there is no easy mechanism to downgrade with
+Homebrew; however, we generally try to stay on top of Bazel versions.
+
+If you have tried and are unable to configure your system by
+:ref:`following the instructions <build_from_source>`, please do not hesitate
+to :ref:`ask for help <getting_help>`.
 
 .. _binary-packages:
 
 Binary Packages
 ---------------
 
-The binary releases of Drake are built with GCC 5.4 on Ubuntu Xenial and Apple
-LLVM 10.0 on macOS High Sierra.
+The binary releases of Drake are built with GCC 5.4 on Ubuntu Xenial, GCC 7.3
+on Ubuntu Bionic, and Apple LLVM 10.0 on macOS High Sierra.
 
 The links for these packages are listed in :ref:`binary-installation`.
 
@@ -114,6 +140,7 @@ Issue Tracking
     :maxdepth: 1
 
     issues
+    platform_reviewer_checklist
 
 Code Review
 ===========
@@ -156,6 +183,21 @@ lines, excluding files that are easily identified to meet the exemptions above.
 We use https://reviewable.io for code reviews. You can sign in for free with
 your GitHub identity. Before your first code review, please take a look at
 :doc:`reviewable`.
+
+If you have an expected pace for your review, please add a ``priority`` label
+(which have different meanings for PRs and
+:ref:`for issues <issues-priority>`). The response expectations, for both the
+author and reviewer:
+
+- ``priority: emergency`` - Very quick response time, nominally reserved for
+  build cop.
+- ``priority: high`` - Some urgency, quick response time.
+- ``priority: medium`` - (Default) Normal response time.
+- ``priority: low`` - No rush.
+- ``priority: backlog`` - Give priority to all other PRs on your plate.
+
+If you are an external contributor, you will need to request that a priority be
+added by a Drake Developer.
 
 **Feature Review.** After creating your pull request, assign it to someone
 else on your team for feature review. Choose the person most familiar

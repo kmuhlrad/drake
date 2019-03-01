@@ -6,9 +6,9 @@ import unittest
 import numpy as np
 
 from pydrake.common import FindResourceOrThrow
-from pydrake.multibody.multibody_tree.multibody_plant import MultibodyPlant
-from pydrake.multibody.multibody_tree.parsing import AddModelFromSdfFile
-from pydrake.util.eigen_geometry import Isometry3
+from pydrake.multibody.plant import MultibodyPlant
+from pydrake.multibody.parsing import Parser
+from pydrake.common.eigen_geometry import Isometry3
 
 
 class TestPlanner(unittest.TestCase):
@@ -65,7 +65,7 @@ class TestPlanner(unittest.TestCase):
         file_name = FindResourceOrThrow(
             "drake/multibody/benchmarks/acrobot/acrobot.sdf")
         plant = MultibodyPlant()
-        AddModelFromSdfFile(file_name=file_name, plant=plant)
+        Parser(plant).AddModelFromFile(file_name)
         plant.Finalize()
 
         context = plant.CreateDefaultContext()

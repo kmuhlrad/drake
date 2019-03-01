@@ -86,6 +86,7 @@ class PoseAggregator : public LeafSystem<T> {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(PoseAggregator)
 
+  /// Constructs a default aggregator (with no inputs).
   PoseAggregator();
 
   /// Scalar-converting copy constructor.  See @ref system_scalar_conversion.
@@ -157,13 +158,12 @@ namespace pose_aggregator_detail {
 // parameter @p T.
 struct InputRecord {
   enum PoseInputType {
-    kUnknown = 0,
     kSinglePose = 1,
     kSingleVelocity = 2,
     kBundle = 3,
   };
 
-  PoseInputType type{kUnknown};
+  PoseInputType type{kSinglePose};
   int num_poses{0};
   // name is only valid if type is kSingle{Pose, Velocity} or kBundle.
   std::string name{};

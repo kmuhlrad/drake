@@ -130,7 +130,7 @@ class MobilPlannerTest : public ::testing::TestWithParam<RoadPositionStrategy> {
     traffic_poses.set_pose(num_lanes, Eigen::Isometry3d(translation_ego));
     traffic_poses.set_velocity(num_lanes, all_velocity);
     context_->FixInputPort(traffic_input_index_,
-                           systems::AbstractValue::Make(traffic_poses));
+                           AbstractValue::Make(traffic_poses));
   }
 
   std::unique_ptr<systems::System<double>> dut_;  //< The device under test.
@@ -187,7 +187,7 @@ TEST_P(MobilPlannerTest, MutableParameterAccessors) {
   InitializeDragway(2 /* num_lanes */);
   InitializeMobilPlanner(true /* initial_with_s */);
 
-  ASSERT_EQ(2, context_->num_numeric_parameters());
+  ASSERT_EQ(2, context_->num_numeric_parameter_groups());
   const auto mobil = dynamic_cast<const MobilPlanner<double>*>(dut_.get());
 
   auto& mobil_params = mobil->get_mutable_mobil_params(context_.get());

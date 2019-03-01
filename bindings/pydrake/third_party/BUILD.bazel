@@ -10,7 +10,7 @@ load(
     "@drake//tools/skylark:pybind.bzl",
     "get_pybind_package_info",
 )
-load(":forward_files.bzl", "forward_files")
+load("@drake//tools/workspace:forward_files.bzl", "forward_files")
 
 package(default_visibility = [
     "//bindings/pydrake:__subpackages__",
@@ -76,5 +76,6 @@ install(
 )
 
 add_lint_tests(
+    cpplint_data = ["//bindings/pydrake:.clang-format"],
     enable_clang_format_lint = True,
 )

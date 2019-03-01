@@ -9,9 +9,9 @@
 #include "drake/geometry/scene_graph.h"
 #include "drake/lcm/drake_lcm.h"
 #include "drake/multibody/benchmarks/acrobot/make_acrobot_plant.h"
-#include "drake/multibody/multibody_tree/joints/revolute_joint.h"
-#include "drake/multibody/multibody_tree/parsing/multibody_plant_sdf_parser.h"
-#include "drake/multibody/multibody_tree/uniform_gravity_field_element.h"
+#include "drake/multibody/parsing/parser.h"
+#include "drake/multibody/tree/revolute_joint.h"
+#include "drake/multibody/tree/uniform_gravity_field_element.h"
 #include "drake/systems/analysis/simulator.h"
 #include "drake/systems/controllers/linear_quadratic_regulator.h"
 #include "drake/systems/framework/diagram_builder.h"
@@ -24,12 +24,13 @@ using geometry::SceneGraph;
 using lcm::DrakeLcm;
 using multibody::benchmarks::acrobot::AcrobotParameters;
 using multibody::benchmarks::acrobot::MakeAcrobotPlant;
-using multibody::multibody_plant::MultibodyPlant;
-using multibody::parsing::AddModelFromSdfFile;
+using multibody::MultibodyPlant;
+using multibody::Parser;
 using multibody::JointActuator;
 using multibody::RevoluteJoint;
 using multibody::UniformGravityFieldElement;
 using systems::Context;
+using Eigen::Vector2d;
 
 namespace examples {
 namespace multibody {
@@ -40,7 +41,7 @@ DEFINE_double(target_realtime_rate, 1.0,
               "Desired rate relative to real time.  See documentation for "
               "Simulator::set_target_realtime_rate() for details.");
 
-DEFINE_double(simulation_time, 10.0,
+DEFINE_double(simulation_time, 3.0,
               "Desired duration of the simulation in seconds.");
 
 DEFINE_bool(time_stepping, true, "If 'true', the plant is modeled as a "
@@ -58,10 +59,10 @@ std::unique_ptr<systems::AffineSystem<double>> MakeBalancingLQRController(
   // created along with a SceneGraph for simulation would also have input ports
   // to interact with that SceneGraph).
   MultibodyPlant<double> acrobot;
-  AddModelFromSdfFile(full_name, &acrobot);
+  Parser parser(&acrobot);
+  parser.AddModelFromFile(full_name);
   // Add gravity to the model.
-  acrobot.AddForceElement<UniformGravityFieldElement>(
-      -9.81 * Vector3<double>::UnitZ());
+  acrobot.AddForceElement<UniformGravityFieldElement>();
   // We are done defining the model.
   acrobot.Finalize();
 
@@ -72,7 +73,12 @@ std::unique_ptr<systems::AffineSystem<double>> MakeBalancingLQRController(
   std::unique_ptr<Context<double>> context = acrobot.CreateDefaultContext();
 
   // Set nominal actuation torque to zero.
-  context->FixInputPort(0, Vector1d::Constant(0.0));
+  const int actuation_port_index =
+      acrobot.get_actuation_input_port().get_index();
+  context->FixInputPort(actuation_port_index, Vector1d::Constant(0.0));
+  context->FixInputPort(
+      acrobot.get_applied_generalized_force_input_port().get_index(),
+      Vector2d::Constant(0.0));
 
   shoulder.set_angle(context.get(), M_PI);
   shoulder.set_angular_rate(context.get(), 0.0);
@@ -88,7 +94,9 @@ std::unique_ptr<systems::AffineSystem<double>> MakeBalancingLQRController(
   Vector1d R = Vector1d::Constant(1);
 
   return systems::controllers::LinearQuadraticRegulator(
-      acrobot, *context, Q, R);
+      acrobot, *context, Q, R,
+      Eigen::Matrix<double, 0, 0>::Zero() /* No cross state/control costs */,
+      actuation_port_index);
 }
 
 int do_main() {
@@ -96,8 +104,6 @@ int do_main() {
 
   SceneGraph<double>& scene_graph = *builder.AddSystem<SceneGraph>();
   scene_graph.set_name("scene_graph");
-
-  const double simulation_time = FLAGS_simulation_time;
 
   const double time_step = FLAGS_time_stepping ? 1.0e-3 : 0.0;
 
@@ -108,11 +114,11 @@ int do_main() {
   MultibodyPlant<double>& acrobot =
       *builder.AddSystem<MultibodyPlant>(time_step);
 
-  AddModelFromSdfFile(full_name, &acrobot, &scene_graph);
+  Parser parser(&acrobot, &scene_graph);
+  parser.AddModelFromFile(full_name);
 
   // Add gravity to the model.
-  acrobot.AddForceElement<UniformGravityFieldElement>(
-      -9.81 * Vector3<double>::UnitZ());
+  acrobot.AddForceElement<UniformGravityFieldElement>();
 
   // We are done defining the model.
   acrobot.Finalize();
@@ -120,10 +126,10 @@ int do_main() {
   DRAKE_DEMAND(acrobot.num_actuators() == 1);
   DRAKE_DEMAND(acrobot.num_actuated_dofs() == 1);
 
-  const RevoluteJoint<double>& shoulder =
-      acrobot.GetJointByName<RevoluteJoint>("ShoulderJoint");
-  const RevoluteJoint<double>& elbow =
-      acrobot.GetJointByName<RevoluteJoint>("ElbowJoint");
+  RevoluteJoint<double>& shoulder =
+      acrobot.GetMutableJointByName<RevoluteJoint>("ShoulderJoint");
+  RevoluteJoint<double>& elbow =
+      acrobot.GetMutableJointByName<RevoluteJoint>("ElbowJoint");
 
   // Drake's parser will default the name of the actuator to match the name of
   // the joint it actuates.
@@ -151,24 +157,24 @@ int do_main() {
   geometry::ConnectDrakeVisualizer(&builder, scene_graph);
   auto diagram = builder.Build();
 
-  // Create a context for this system:
-  std::unique_ptr<systems::Context<double>> diagram_context =
-      diagram->CreateDefaultContext();
-  diagram->SetDefaultContext(diagram_context.get());
-  systems::Context<double>& acrobot_context =
-      diagram->GetMutableSubsystemContext(acrobot, diagram_context.get());
-
-  // Set an initial condition near the upright fixed point.
-  shoulder.set_angle(&acrobot_context, M_PI + 0.1);
-  shoulder.set_angular_rate(&acrobot_context, 0.0);
-  elbow.set_angle(&acrobot_context, -0.1);
-  elbow.set_angular_rate(&acrobot_context, 0.0);
-
-  systems::Simulator<double> simulator(*diagram, std::move(diagram_context));
-
+  systems::Simulator<double> simulator(*diagram);
   simulator.set_target_realtime_rate(FLAGS_target_realtime_rate);
-  simulator.Initialize();
-  simulator.StepTo(simulation_time);
+
+  RandomGenerator generator;
+
+  // Setup distribution for random initial conditions.
+  std::normal_distribution<symbolic::Expression> gaussian;
+  shoulder.set_random_angle_distribution(M_PI + 0.02*gaussian(generator));
+  elbow.set_random_angle_distribution(0.05*gaussian(generator));
+
+  for (int i = 0; i < 5; i++) {
+    simulator.get_mutable_context().set_time(0.0);
+    simulator.get_system().SetRandomContext(&simulator.get_mutable_context(),
+                                            &generator);
+
+    simulator.Initialize();
+    simulator.StepTo(FLAGS_simulation_time);
+  }
 
   return 0;
 }

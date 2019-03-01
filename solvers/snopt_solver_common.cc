@@ -8,18 +8,14 @@
 namespace drake {
 namespace solvers {
 
-SolverId SnoptSolver::solver_id() const {
-  return id();
-}
+SnoptSolver::SnoptSolver()
+    : SolverBase(&id, &is_available, &ProgramAttributesSatisfied) {}
+
+SnoptSolver::~SnoptSolver() = default;
 
 SolverId SnoptSolver::id() {
   static const never_destroyed<SolverId> singleton{"SNOPT"};
   return singleton.access();
-}
-
-bool SnoptSolver::AreProgramAttributesSatisfied(
-    const MathematicalProgram& prog) const {
-  return SnoptSolver::ProgramAttributesSatisfied(prog);
 }
 
 bool SnoptSolver::ProgramAttributesSatisfied(const MathematicalProgram& prog) {

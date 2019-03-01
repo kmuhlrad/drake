@@ -114,6 +114,7 @@ class SystemBase : public internal::SystemMessageInterface {
   scalar type-specific input port access. */
   //@{
 
+  // TODO(jwnimmer-tri) Deprecate me.
   /** Returns the value of the input port with the given `port_index` as an
   AbstractValue, which is permitted for ports of any type. Causes the value to
   become up to date first if necessary, delegating to our parent Diagram.
@@ -133,6 +134,7 @@ class SystemBase : public internal::SystemMessageInterface {
     return EvalAbstractInputImpl(__func__, context, port);
   }
 
+  // TODO(jwnimmer-tri) Deprecate me.
   /** Returns the value of an abstract-valued input port with the given
   `port_index` as a value of known type `V`. Causes the value to become
   up to date first if necessary. See EvalAbstractInput() for
@@ -296,7 +298,7 @@ class SystemBase : public internal::SystemMessageInterface {
   constructible or cloneable. For methods below that are not given an explicit
   model value or construction ("make") method, the underlying type must also be
   default constructible.
-  @see drake::systems::Value for more about abstract values. */
+  @see drake::Value for more about abstract values. */
   //@{
 
   /// @anchor DeclareCacheEntry_primary
@@ -351,7 +353,7 @@ class SystemBase : public internal::SystemMessageInterface {
   arguments will be deduced and do not need to be specified. See the
   @ref DeclareCacheEntry_primary "primary DeclareCacheEntry() signature"
   for more information about the parameters and behavior.
-  @see drake::systems::Value */
+  @see drake::Value */
   template <class MySystem, class MyContext, typename ValueType>
   const CacheEntry& DeclareCacheEntry(
       std::string description,
@@ -372,7 +374,7 @@ class SystemBase : public internal::SystemMessageInterface {
   arguments will be deduced and do not need to be specified. See the
   @ref DeclareCacheEntry_primary "primary DeclareCacheEntry() signature"
   above for more information about the parameters and behavior.
-  @see drake::systems::Value */
+  @see drake::Value */
   template <class MySystem, class MyContext, typename ValueType>
   const CacheEntry& DeclareCacheEntry(
       std::string description, const ValueType& model_value,
@@ -416,7 +418,7 @@ class SystemBase : public internal::SystemMessageInterface {
   each allocation (not common), use one of the other signatures to explicitly
   provide a method for the allocator to call; that method can then invoke
   the `ValueType` default constructor each time it is called.
-  @see drake::systems::Value */
+  @see drake::Value */
   template <class MySystem, class MyContext, typename ValueType>
   const CacheEntry& DeclareCacheEntry(
       std::string description,
@@ -735,7 +737,7 @@ class SystemBase : public internal::SystemMessageInterface {
 
   /** Returns the number of declared numeric parameters (each of these is
   a vector-valued parameter). */
-  int num_numeric_parameters() const {
+  int num_numeric_parameter_groups() const {
     return static_cast<int>(numeric_parameter_tickets_.size());
   }
 
@@ -803,22 +805,28 @@ class SystemBase : public internal::SystemMessageInterface {
   given name if it isn't kUseDefaultName, otherwise making up a name like "u3"
   from the next available input port index.
   @pre `given_name` must not be empty. */
-  std::string NextInputPortName(std::string given_name) const {
-    DRAKE_DEMAND(!given_name.empty());
-    return given_name == kUseDefaultName
+  std::string NextInputPortName(
+      variant<std::string, UseDefaultName> given_name) const {
+    const std::string result =
+        given_name == kUseDefaultName
            ? std::string("u") + std::to_string(get_num_input_ports())
-           : std::move(given_name);
+           : get<std::string>(std::move(given_name));
+    DRAKE_DEMAND(!result.empty());
+    return result;
   }
 
   /** (Internal use only) Returns a name for the next output port, using the
   given name if it isn't kUseDefaultName, otherwise making up a name like "y3"
   from the next available output port index.
   @pre `given_name` must not be empty. */
-  std::string NextOutputPortName(std::string given_name) const {
-    DRAKE_DEMAND(!given_name.empty());
-    return given_name == kUseDefaultName
+  std::string NextOutputPortName(
+      variant<std::string, UseDefaultName> given_name) const {
+    const std::string result =
+        given_name == kUseDefaultName
            ? std::string("y") + std::to_string(get_num_output_ports())
-           : std::move(given_name);
+           : get<std::string>(std::move(given_name));
+    DRAKE_DEMAND(!result.empty());
+    return result;
   }
 
   /** (Internal use only) Assigns a ticket to a new discrete variable group
@@ -848,7 +856,7 @@ class SystemBase : public internal::SystemMessageInterface {
   @pre The supplied index must be the next available one; that is, indexes
        must be assigned sequentially. */
   void AddNumericParameter(NumericParameterIndex index) {
-    DRAKE_DEMAND(index == num_numeric_parameters());
+    DRAKE_DEMAND(index == num_numeric_parameter_groups());
     const DependencyTicket ticket(assign_next_dependency_ticket());
     numeric_parameter_tickets_.push_back(
         {ticket, "numeric parameter " + std::to_string(index)});
@@ -954,7 +962,8 @@ class SystemBase : public internal::SystemMessageInterface {
   the input port had some value type that was wrong. */
   [[noreturn]] static void ThrowInputPortHasWrongType(
       const char* func, const std::string& system_pathname, InputPortIndex,
-      const std::string& expected_type, const std::string& actual_type);
+      const std::string& port_name, const std::string& expected_type,
+      const std::string& actual_type);
 
   /** Throws std::logic_error because someone called API method `func`, that
   requires this input port to be evaluatable, but the port was neither
@@ -1036,7 +1045,7 @@ class SystemBase : public internal::SystemMessageInterface {
 
   const TrackerInfo& numeric_parameter_tracker_info(
       NumericParameterIndex index) const {
-    DRAKE_DEMAND(0 <= index && index < num_numeric_parameters());
+    DRAKE_DEMAND(0 <= index && index < num_numeric_parameter_groups());
     return numeric_parameter_tickets_[index];
   }
 

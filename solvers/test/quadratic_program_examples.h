@@ -46,7 +46,7 @@ class QuadraticProgram0 : public OptimizationProgram {
 
   ~QuadraticProgram0() override {};
 
-  void CheckSolution(SolverType solver_type) const override;
+  void CheckSolution(const MathematicalProgramResult& result) const override;
 
  private:
   VectorDecisionVariable<2> x_;
@@ -70,7 +70,7 @@ class QuadraticProgram1 : public OptimizationProgram {
 
   ~QuadraticProgram1() override {};
 
-  void CheckSolution(SolverType solver_type) const override;
+  void CheckSolution(const MathematicalProgramResult& result) const override;
 
  private:
   VectorDecisionVariable<3> x_;
@@ -92,7 +92,7 @@ class QuadraticProgram2 : public OptimizationProgram {
 
   ~QuadraticProgram2() override {};
 
-  void CheckSolution(SolverType solver_type) const override;
+  void CheckSolution(const MathematicalProgramResult& result) const override;
 
  private:
   VectorDecisionVariable<5> x_;
@@ -118,7 +118,7 @@ class QuadraticProgram3 : public OptimizationProgram {
 
   ~QuadraticProgram3() override {};
 
-  void CheckSolution(SolverType solver_type) const override;
+  void CheckSolution(const MathematicalProgramResult& result) const override;
 
  private:
   VectorDecisionVariable<6> x_;
@@ -139,7 +139,7 @@ class QuadraticProgram4 : public OptimizationProgram {
 
   ~QuadraticProgram4() override {};
 
-  void CheckSolution(SolverType solver_type) const override;
+  void CheckSolution(const MathematicalProgramResult& result) const override;
 
  private:
   VectorDecisionVariable<3> x_;
@@ -150,7 +150,7 @@ class QuadraticProgram4 : public OptimizationProgram {
 // from a desired point which moves along the unit circle (L2 ball), to a point
 // constrained to lie inside the L1 ball.  Implemented in 2D, so that the
 // active set moves along 4 faces of the L1 ball.
-void TestQPonUnitBallExample(const MathematicalProgramSolverInterface& solver);
+void TestQPonUnitBallExample(const SolverInterface& solver);
 }  // namespace test
 }  // namespace solvers
 }  // namespace drake

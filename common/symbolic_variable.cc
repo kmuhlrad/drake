@@ -59,9 +59,14 @@ ostream& operator<<(ostream& os, Variable::Type type) {
       return os << "Integer";
     case Variable::Type::BOOLEAN:
       return os << "Boolean";
+    case Variable::Type::RANDOM_UNIFORM:
+      return os << "Random Uniform";
+    case Variable::Type::RANDOM_GAUSSIAN:
+      return os << "Random Gaussian";
+    case Variable::Type::RANDOM_EXPONENTIAL:
+      return os << "Random Exponential";
   }
-  // Should be unreachable.
-  DRAKE_ABORT();
+  DRAKE_UNREACHABLE();
 }
 
 MatrixX<Variable> MakeMatrixVariable(const int rows, const int cols,

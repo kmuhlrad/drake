@@ -585,6 +585,11 @@ MSKrescodee SpecifyVariableType(const MathematicalProgram& prog,
         throw std::runtime_error(
             "Boolean variables should not be used with Mosek solver.");
       }
+      case MathematicalProgram::VarType::RANDOM_UNIFORM:
+      case MathematicalProgram::VarType::RANDOM_GAUSSIAN:
+      case MathematicalProgram::VarType::RANDOM_EXPONENTIAL:
+        throw std::runtime_error(
+            "Random variables should not be used with Mosek solver.");
     }
   }
   return rescode;
@@ -652,14 +657,11 @@ std::shared_ptr<MosekSolver::License> MosekSolver::AcquireLicense() {
 
 bool MosekSolver::is_available() { return true; }
 
-void MosekSolver::Solve(const MathematicalProgram& prog,
-                        const optional<Eigen::VectorXd>& initial_guess,
-                        const optional<SolverOptions>& solver_options,
-                        MathematicalProgramResult* result) const {
-  // TODO(hongkai.dai): support setting initial guess and solver options.
-  if (initial_guess.has_value() || solver_options.has_value()) {
-    throw std::runtime_error("Not implemented yet.");
-  }
+void MosekSolver::DoSolve(
+    const MathematicalProgram& prog,
+    const Eigen::VectorXd& initial_guess,
+    const SolverOptions& merged_options,
+    MathematicalProgramResult* result) const {
   const int num_vars = prog.num_vars();
   MSKtask_t task = nullptr;
   MSKrescodee rescode;
@@ -681,6 +683,8 @@ void MosekSolver::Solve(const MathematicalProgram& prog,
 
   // Create the optimization task.
   rescode = MSK_maketask(env, 0, num_vars, &task);
+  // Always check if rescode is MSK_RES_OK before we call any mosek functions.
+  // If it is not MSK_RES_OK, then bypasses everything and exits.
   if (rescode == MSK_RES_OK) {
     rescode = MSK_appendvars(task, num_vars);
   }
@@ -734,6 +738,66 @@ void MosekSolver::Solve(const MathematicalProgram& prog,
     }
   }
 
+  if (rescode == MSK_RES_OK) {
+    for (const auto& double_options :
+         merged_options.GetOptionsDouble(id())) {
+      if (rescode == MSK_RES_OK) {
+        rescode = MSK_putnadouparam(task, double_options.first.c_str(),
+                                    double_options.second);
+      }
+    }
+    for (const auto& int_options : merged_options.GetOptionsInt(id())) {
+      if (rescode == MSK_RES_OK) {
+        rescode = MSK_putnaintparam(task, int_options.first.c_str(),
+                                    int_options.second);
+      }
+    }
+    for (const auto& str_options : merged_options.GetOptionsStr(id())) {
+      if (rescode == MSK_RES_OK) {
+        rescode = MSK_putnastrparam(task, str_options.first.c_str(),
+                                    str_options.second.c_str());
+      }
+    }
+  }
+
+  // Mosek can accept the initial guess on its integer/binary variables, but
+  // not on the continuous variables. So it allows some of the variables'
+  // initial guess to be unset, while setting the others. If the initial guess
+  // for any variable is finite, then we ask Mosek to set the initial guess.
+  const bool has_any_finite_initial_guess =
+      initial_guess.unaryExpr([](double g) { return std::isfinite(g); }).any();
+  if (with_integer_or_binary_variable && has_any_finite_initial_guess) {
+    // Set the initial guess for the integer/binary variables.
+    DRAKE_ASSERT(initial_guess.size() == prog.num_vars());
+    MSKint32t num_mosek_vars{0};
+    if (rescode == MSK_RES_OK) {
+      // num_mosek_vars is guaranteed to be no less than prog.num_vars(), as we
+      // can add slack variables when we construct Mosek constraints. For
+      // example, when we call AddSecondOrderConeConstraints().
+      rescode = MSK_getnumvar(task, &num_mosek_vars);
+      DRAKE_DEMAND(num_mosek_vars >= prog.num_vars());
+    }
+    if (rescode == MSK_RES_OK) {
+      rescode = MSK_putintparam(task, MSK_IPAR_MIO_CONSTRUCT_SOL, MSK_ON);
+    }
+    int var_count = 0;
+    for (int i = 0; i < num_mosek_vars; ++i) {
+      if (!is_new_variable[i]) {
+        const auto var_type = prog.decision_variable(var_count).get_type();
+        if (var_type == MathematicalProgram::VarType::INTEGER ||
+            var_type == MathematicalProgram::VarType::BINARY) {
+          if (rescode == MSK_RES_OK) {
+            const MSKrealt initial_guess_i = initial_guess(var_count);
+            rescode =
+                MSK_putxxslice(task, MSK_SOL_ITG, i, i + 1, &initial_guess_i);
+          }
+        }
+        var_count++;
+      }
+    }
+    DRAKE_DEMAND(var_count == prog.num_vars());
+  }
+
   result->set_solution_result(SolutionResult::kUnknownError);
   // Run optimizer.
   if (rescode == MSK_RES_OK) {
@@ -758,7 +822,6 @@ void MosekSolver::Solve(const MathematicalProgram& prog,
     solution_type = MSK_SOL_ITR;
   }
 
-  result->set_solver_id(id());
   // TODO(hongkai.dai@tri.global) : Add MOSEK parameters.
   // Mosek parameter are added by enum, not by string.
   MSKsolstae solution_status{MSK_SOL_STA_UNKNOWN};
@@ -771,7 +834,8 @@ void MosekSolver::Solve(const MathematicalProgram& prog,
         case MSK_SOL_STA_OPTIMAL:
         case MSK_SOL_STA_NEAR_OPTIMAL:
         case MSK_SOL_STA_INTEGER_OPTIMAL:
-        case MSK_SOL_STA_NEAR_INTEGER_OPTIMAL: {
+        case MSK_SOL_STA_NEAR_INTEGER_OPTIMAL:
+        case MSK_SOL_STA_PRIM_FEAS: {
           result->set_solution_result(SolutionResult::kSolutionFound);
           MSKint32t num_mosek_vars;
           rescode = MSK_getnumvar(task, &num_mosek_vars);
@@ -830,14 +894,6 @@ void MosekSolver::Solve(const MathematicalProgram& prog,
   unused(rescode);
 
   MSK_deletetask(&task);
-}
-
-SolutionResult MosekSolver::Solve(MathematicalProgram& prog) const {
-  MathematicalProgramResult result;
-  Solve(prog, {}, {}, &result);
-  const SolverResult solver_result = result.ConvertToSolverResult();
-  prog.SetSolverResult(solver_result);
-  return result.get_solution_result();
 }
 
 }  // namespace solvers

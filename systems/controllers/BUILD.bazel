@@ -42,6 +42,7 @@ drake_cc_library(
         "//common:essential",
         "//math:wrap_to",
         "//solvers:mathematical_program",
+        "//solvers:solve",
         "//systems/analysis:simulator",
         "//systems/framework",
         "//systems/primitives:barycentric_system",
@@ -53,8 +54,7 @@ drake_cc_library(
     srcs = ["inverse_dynamics.cc"],
     hdrs = ["inverse_dynamics.h"],
     deps = [
-        "//multibody:rigid_body_tree",
-        "//multibody/multibody_tree/multibody_plant",
+        "//multibody/plant",
         "//systems/framework",
     ],
 )
@@ -67,8 +67,7 @@ drake_cc_library(
         ":inverse_dynamics",
         ":pid_controller",
         ":state_feedback_controller_interface",
-        "//multibody:rigid_body_tree",
-        "//multibody/multibody_tree/multibody_plant",
+        "//multibody/plant",
         "//systems/framework",
         "//systems/primitives:adder",
         "//systems/primitives:constant_vector_source",
@@ -83,6 +82,7 @@ drake_cc_library(
     hdrs = ["linear_model_predictive_controller.h"],
     deps = [
         "//common/trajectories:piecewise_polynomial",
+        "//solvers:solve",
         "//systems/primitives:linear_system",
         "//systems/trajectory_optimization:direct_transcription",
     ],
@@ -179,10 +179,9 @@ drake_cc_googletest(
     ],
     deps = [
         ":inverse_dynamics",
-        "//attic/multibody/parsers",
         "//common:find_resource",
         "//common/test_utilities:eigen_matrix_compare",
-        "//multibody/multibody_tree/parsing",
+        "//multibody/parsing",
         "//systems/controllers/test_utilities",
     ],
 )
@@ -194,10 +193,9 @@ drake_cc_googletest(
     ],
     deps = [
         ":inverse_dynamics_controller",
-        "//attic/multibody/parsers",
         "//common:find_resource",
         "//common/test_utilities:eigen_matrix_compare",
-        "//multibody/multibody_tree/parsing",
+        "//multibody/parsing",
         "//systems/controllers/test_utilities",
     ],
 )

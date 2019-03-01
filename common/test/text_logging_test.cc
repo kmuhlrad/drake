@@ -1,9 +1,11 @@
 #include "drake/common/text_logging.h"
 
 #include <ostream>
+#include <sstream>
 #include <string>
 #include <vector>
 
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 // The BUILD.bazel rules must supply this flag.  This test code is compiled and
@@ -22,6 +24,11 @@
     #error Unwanted HAVE_SPDLOG.
   #endif
 #endif
+
+#ifdef HAVE_SPDLOG
+#include <spdlog/sinks/dist_sink.h>
+#include <spdlog/sinks/ostream_sink.h>
+#endif  // HAVE_SPDLOG
 
 namespace {
 
@@ -61,13 +68,17 @@ GTEST_TEST(TextLoggingTest, ConstantTest) {
   #endif
 }
 
-// Abuse gtest internals to verify that logging actually prints, when enabled.
+// Abuse gtest internals to verify that logging actually prints when enabled,
+// and that the default level is INFO.
 GTEST_TEST(TextLoggingTest, CaptureOutputTest) {
   testing::internal::CaptureStderr();
-  drake::log()->info("sentinel string");
+  drake::log()->trace("bad sentinel");
+  drake::log()->debug("bad sentinel");
+  drake::log()->info("good sentinel");
   std::string output = testing::internal::GetCapturedStderr();
   #if TEXT_LOGGING_TEST_SPDLOG
-    EXPECT_TRUE(output.find("sentinel string") != std::string::npos);
+    EXPECT_TRUE(output.find("good sentinel") != std::string::npos);
+    EXPECT_TRUE(output.find("bad sentinel") == std::string::npos);
   #else
     EXPECT_EQ(output, "");
   #endif
@@ -122,6 +133,29 @@ GTEST_TEST(TextLoggingTest, DrakeMacrosDontEvaluateArguments) {
   #endif
   tracearg = 0;
   debugarg = 0;
+}
+
+// We must run this test last because it changes the default configuration.
+GTEST_TEST(TextLoggingTest, ZZZ_ChangeDefaultSink) {
+  // The getter should never return nullptr, even with spdlog disabled.
+  drake::logging::sink* const sink_base = drake::logging::get_dist_sink();
+  ASSERT_NE(sink_base, nullptr);
+
+  // The remainder of the test case only makes sense when spdlog is enabled.
+  #if TEXT_LOGGING_TEST_SPDLOG
+    // Our API promises that the result always has this subtype.
+    auto* const sink = dynamic_cast<spdlog::sinks::dist_sink_mt*>(sink_base);
+    ASSERT_NE(sink, nullptr);
+
+    // Redirect all logs to a memory stream.
+    std::ostringstream messages;
+    auto custom_sink = std::make_shared<spdlog::sinks::ostream_sink_st>(
+        messages, true /* flush */);
+    sink->set_sinks({custom_sink});
+    drake::log()->info("This is some good info!");
+    EXPECT_THAT(messages.str(), testing::EndsWith(
+        "[console] [info] This is some good info!\n"));
+  #endif
 }
 
 }  // anon namespace

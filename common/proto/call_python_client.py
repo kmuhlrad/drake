@@ -1,3 +1,42 @@
+"""
+Permits calling arbitrary functions and passing some forms of data from C++
+to Python (only one direction) as a server-client pair.
+
+The server in this case is the C++ program, and the client is this binary.
+For an example of C++ usage, see `call_python_server_test.cc`.
+
+Here's an example of running with the C++ test program:
+
+    cd drake
+    bazel build //common/proto:call_python_client_cli //common/proto:call_python_server_test  # noqa
+    # Create default pipe file.
+    rm -f /tmp/python_rpc && mkfifo /tmp/python_rpc
+
+    # In Terminal 1, run client.
+    ./bazel-bin/common/proto/call_python_client_cli
+
+    # In Terminal 2, run server (or your C++ program).
+    ./bazel-bin/common/proto/call_python_server_test
+
+To use in Jupyter (if you have it installed) without a FIFO file (such that
+it's non-blocking):
+
+    cd drake
+    bazel build //common/proto:call_python_client_cli //common/proto:call_python_server_test  # noqa
+    rm -f /tmp/python_rpc  # Do not make it FIFO
+
+    # In Terminal 1, run server, create output.
+    ./bazel-bin/common/proto/call_python_server_test
+
+    # In Terminal 2, run client in notebook.
+    ./bazel-bin/common/proto/call_python_client_cli \
+        -c jupyter notebook ${PWD}/common/proto/call_python_client_notebook.ipynb  # noqa
+    # Execute: Cell > Run All
+
+Note:
+    Occasionally, the plotting will not come through on the notebook. I (Eric)
+    am unsure why.
+"""
 from __future__ import print_function
 import argparse
 import os
@@ -223,7 +262,7 @@ class CallPythonClient(object):
     """
     def __init__(self, filename=None, stop_on_error=True,
                  scope_globals=None, scope_locals=None,
-                 threaded=True, wait=False):
+                 threaded=False, wait=False):
         if filename is None:
             # TODO(jamiesnape): Implement and use a
             # drake.common.GetRpcPipeTempDirectory function.
@@ -520,7 +559,9 @@ def _read_next(f, msg):
 
 def main(argv):
     _ensure_sigint_handler()
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument(
         "--no_wait", action='store_true',
         help="Close client after messages are processed. " +
@@ -533,13 +574,23 @@ def main(argv):
         "--stop_on_error", action='store_true',
         help="Stop client if there is an error when executing a call.")
     parser.add_argument("-f", "--file", type=str, default=None)
+    parser.add_argument(
+        "-c", "--command", type=str, nargs='+', default=None,
+        help="Execute command (e.g. `jupyter notebook`) instead of running "
+             "client.")
     args = parser.parse_args(argv)
 
-    client = CallPythonClient(
-        args.file, stop_on_error=args.stop_on_error,
-        threaded=not args.no_threading, wait=not args.no_wait)
-    good = client.run()
-    return good
+    if args.command is not None:
+        # Execute command s.t. it has access to the relevant PYTHNOPATH.
+        os.execvp(args.command[0], args.command)
+        # Control should not return to this program unless there was an error.
+        return False
+    else:
+        client = CallPythonClient(
+            args.file, stop_on_error=args.stop_on_error,
+            threaded=not args.no_threading, wait=not args.no_wait)
+        good = client.run()
+        return good
 
 
 if __name__ == "__main__":

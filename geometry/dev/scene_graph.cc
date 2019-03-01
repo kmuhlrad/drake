@@ -45,7 +45,6 @@ class SceneGraphTester {
 
 namespace dev {
 
-using systems::AbstractValue;
 using systems::Context;
 using systems::InputPort;
 using systems::LeafContext;
@@ -54,7 +53,6 @@ using systems::rendering::PoseBundle;
 using systems::SystemOutput;
 using systems::SystemSymbolicInspector;
 using systems::SystemTypeTag;
-using systems::Value;
 using std::make_unique;
 using std::vector;
 
@@ -281,6 +279,19 @@ void SceneGraph<T>::AssignRole(SourceId source_id,
 }
 
 template <typename T>
+int SceneGraph<T>::RemoveRole(SourceId source_id, FrameId frame_id, Role role) {
+  GS_THROW_IF_CONTEXT_ALLOCATED
+  return initial_state_->RemoveRole(source_id, frame_id, role);
+}
+
+template <typename T>
+int SceneGraph<T>::RemoveRole(SourceId source_id, GeometryId geometry_id,
+                              Role role) {
+  GS_THROW_IF_CONTEXT_ALLOCATED
+  return initial_state_->RemoveRole(source_id, geometry_id, role);
+}
+
+template <typename T>
 const SceneGraphInspector<T>& SceneGraph<T>::model_inspector() const {
   GS_THROW_IF_CONTEXT_ALLOCATED
   return model_inspector_;
@@ -420,16 +431,13 @@ void SceneGraph<T>::FullPoseUpdate(const GeometryContext<T>& context) const {
       const auto itr = input_source_ids_.find(source_id);
       // The source id *could* be the internal source and we skip it.
       if (itr != input_source_ids_.end()) {
-        const int pose_port = itr->second.pose_port;
-        const auto pose_port_value =
-            this->template EvalAbstractInput(context, pose_port);
-        if (pose_port_value) {
-          const auto& poses =
-              pose_port_value->template GetValue<FramePoseVector<T>>();
-          mutable_state.SetFramePoses(poses);
-        } else {
+        const auto& pose_port = this->get_input_port(itr->second.pose_port);
+        if (!pose_port.HasValue(context)) {
           throw_error(source_id, "pose");
         }
+        const auto& poses =
+            pose_port.template Eval<FramePoseVector<T>>(context);
+        mutable_state.SetFramePoses(poses);
       }
     }
   }

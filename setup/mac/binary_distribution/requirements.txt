@@ -1,9 +1,9 @@
 lxml
 matplotlib
-pip
 pydot
 PyYAML
 pyzmq
 six
 tornado
 u-msgpack-python
+virtualenv

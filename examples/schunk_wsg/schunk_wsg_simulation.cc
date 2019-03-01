@@ -56,18 +56,18 @@ int DoMain() {
       builder.AddSystem<DrakeVisualizer>(tree, &lcm);
   visualizer->set_name("visualizer");
   auto command_sub = builder.AddSystem(
-      systems::lcm::LcmSubscriberSystem::Make<lcmt_schunk_wsg_command>(
-          "SCHUNK_WSG_COMMAND", &lcm));
+      systems::lcm::LcmSubscriberSystem::MakeFixedSize(
+          lcmt_schunk_wsg_command{}, "SCHUNK_WSG_COMMAND", &lcm));
   command_sub->set_name("command_subscriber");
 
   auto wsg_controller = builder.AddSystem<SchunkWsgController>();
 
   auto status_pub = builder.AddSystem(
       systems::lcm::LcmPublisherSystem::Make<lcmt_schunk_wsg_status>(
-          "SCHUNK_WSG_STATUS", &lcm));
+          "SCHUNK_WSG_STATUS", &lcm,
+          manipulation::schunk_wsg::kSchunkWsgLcmStatusPeriod
+              /* publish period */));
   status_pub->set_name("status_publisher");
-  status_pub->set_publish_period(
-      manipulation::schunk_wsg::kSchunkWsgLcmStatusPeriod);
 
   auto status_sender = builder.AddSystem<SchunkWsgStatusSender>();
   auto mbp_state_to_wsg_state = builder.AddSystem(
@@ -75,8 +75,8 @@ int DoMain() {
   status_sender->set_name("status_sender");
 
   builder.Connect(command_sub->get_output_port(),
-                  wsg_controller->get_command_input_port());
-  builder.Connect(wsg_controller->get_output_port(0),
+                  wsg_controller->GetInputPort("command_message"));
+  builder.Connect(wsg_controller->GetOutputPort("force"),
                   plant->actuator_command_input_port());
   builder.Connect(plant->state_output_port(), visualizer->get_input_port(0));
   builder.Connect(plant->state_output_port(),
@@ -84,7 +84,7 @@ int DoMain() {
   builder.Connect(mbp_state_to_wsg_state->get_output_port(),
                   status_sender->get_state_input_port());
   builder.Connect(plant->state_output_port(),
-                  wsg_controller->get_state_input_port());
+                  wsg_controller->GetInputPort("state"));
   builder.Connect(*status_sender, *status_pub);
   auto sys = builder.Build();
 

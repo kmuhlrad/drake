@@ -89,6 +89,7 @@ drake_cc_library(
     deps = [
         "//math:saturate",
         "//systems/framework:leaf_system",
+        "//systems/primitives:discrete_derivative",
     ],
 )
 
@@ -116,10 +117,9 @@ drake_cc_googletest(
     ],
     deps = [
         ":schunk_wsg_constants",
-        "//attic/multibody/parsers",
         "//common:find_resource",
-        "//common/test_utilities:eigen_matrix_compare",
-        "//multibody:rigid_body_tree",
+        "//multibody/parsing",
+        "//multibody/plant",
     ],
 )
 
@@ -140,8 +140,8 @@ drake_cc_googletest(
     deps = [
         ":schunk_wsg_position_controller",
         "//common/test_utilities:eigen_matrix_compare",
-        "//multibody/multibody_tree/multibody_plant",
-        "//multibody/multibody_tree/parsing:multibody_plant_sdf_parser",
+        "//multibody/parsing",
+        "//multibody/plant",
         "//systems/analysis:simulator",
     ],
 )

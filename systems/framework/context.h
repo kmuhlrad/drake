@@ -1,15 +1,17 @@
 #pragma once
 
 #include <memory>
+#include <string>
 #include <utility>
 
+#include "drake/common/default_scalars.h"
 #include "drake/common/drake_optional.h"
 #include "drake/common/drake_throw.h"
 #include "drake/common/pointer_cast.h"
+#include "drake/common/value.h"
 #include "drake/systems/framework/context_base.h"
 #include "drake/systems/framework/parameters.h"
 #include "drake/systems/framework/state.h"
-#include "drake/systems/framework/value.h"
 
 namespace drake {
 namespace systems {
@@ -177,8 +179,8 @@ class Context : public ContextBase {
   const Parameters<T>& get_parameters() const { return *parameters_; }
 
   /// Returns the number of vector-valued parameters.
-  int num_numeric_parameters() const {
-    return parameters_->num_numeric_parameters();
+  int num_numeric_parameter_groups() const {
+    return parameters_->num_numeric_parameter_groups();
   }
 
   /// Returns a const reference to the vector-valued parameter at @p index.
@@ -481,14 +483,16 @@ class Context : public ContextBase {
   // TODO(sherm1) Change the name of this method to be more inclusive since it
   //              also copies accuracy (now) and fixed input port values
   //              (pending above TODO).
-  void SetTimeStateAndParametersFrom(const Context<double>& source) {
+  template <typename U>
+  void SetTimeStateAndParametersFrom(const Context<U>& source) {
     ThrowIfNotRootContext(__func__, "Time");
     // A single change event for all these changes is faster than doing
     // each separately.
     const int64_t change_event = this->start_new_change_event();
 
     // These two both set the value and perform notifications.
-    PropagateTimeChange(this, T(source.get_time()), change_event);
+    const scalar_conversion::ValueConverter<T, U> converter;
+    PropagateTimeChange(this, converter(source.get_time()), change_event);
     PropagateAccuracyChange(this, source.get_accuracy(), change_event);
 
     // Notification is separate from the actual value change for bulk changes.
@@ -512,6 +516,10 @@ class Context : public ContextBase {
   /// modify the input port's value using the appropriate
   /// FixedInputPortValue method, which will ensure that invalidation
   /// notifications are delivered.
+  /// @note Calling this method on an already connected input port, i.e., an
+  /// input port that has previously been passed into a call to
+  /// DiagramBuilder::Connect(), causes FixedInputPortValue to override any
+  /// other value present on that port.
   FixedInputPortValue& FixInputPort(int index, const BasicVector<T>& vec) {
     return ContextBase::FixInputPort(
         index, std::make_unique<Value<BasicVector<T>>>(vec.Clone()));
@@ -519,6 +527,10 @@ class Context : public ContextBase {
 
   /// Same as above method but starts with an Eigen vector whose contents are
   /// used to initialize a BasicVector in the FixedInputPortValue.
+  /// @note Calling this method on an already connected input port, i.e., an
+  /// input port that has previously been passed into a call to
+  /// DiagramBuilder::Connect(), causes FixedInputPortValue to override any
+  /// other value present on that port.
   FixedInputPortValue& FixInputPort(
       int index, const Eigen::Ref<const VectorX<T>>& data) {
     return FixInputPort(index, BasicVector<T>(data));
@@ -528,10 +540,16 @@ class Context : public ContextBase {
   /// the vector is passed by unique_ptr instead of by const reference.  The
   /// caller must not retain any aliases to `vec`; within this method, `vec`
   /// is cloned and then deleted.
+  /// @note Calling this method on an already connected input port, i.e., an
+  /// input port that has previously been passed into a call to
+  /// DiagramBuilder::Connect(), causes FixedInputPortValue to override any
+  /// other value present on that port.
   /// @note This overload will become deprecated in the future, because it can
   /// mislead users to believe that they can retain an alias of `vec` to mutate
   /// the fixed value during a simulation.  Callers should prefer to use one of
   /// the other overloads instead.
+  ///
+  /// @exclude_from_pydrake_mkdoc{Will be deprecated; not bound in pydrake.}
   FixedInputPortValue& FixInputPort(
       int index, std::unique_ptr<BasicVector<T>> vec) {
     DRAKE_THROW_UNLESS(vec.get() != nullptr);
@@ -595,17 +613,23 @@ class Context : public ContextBase {
   std::unique_ptr<State<T>> CloneState() const {
     return DoCloneState();
   }
+
+  /// Returns a partial textual description of the Context, intended to be
+  /// human-readable.  It is not guaranteed to be unambiguous nor complete.
+  std::string to_string() const {
+    return do_to_string();
+  }
   //@}
 
  protected:
-  Context() = default;
+  Context();
 
   /// Copy constructor takes care of base class and `Context<T>` data members.
   /// Derived classes must implement copy constructors that delegate to this
   /// one for use in their DoCloneWithoutPointers() implementations.
   // Default implementation invokes the base class copy constructor and then
   // the local member copy constructors.
-  Context(const Context<T>&) = default;
+  Context(const Context<T>&);
 
   // Structuring these methods as statics permits a DiagramContext to invoke
   // the protected functionality on its children.
@@ -668,6 +692,10 @@ class Context : public ContextBase {
   /// Returns the appropriate concrete State object to be returned by
   /// CloneState().
   virtual std::unique_ptr<State<T>> DoCloneState() const = 0;
+
+  /// Returns a partial textual description of the Context, intended to be
+  /// human-readable.  It is not guaranteed to be unambiguous nor complete.
+  virtual std::string do_to_string() const = 0;
 
   /// Invokes PropagateTimeChange() on all subcontexts of this Context. The
   /// default implementation does nothing, which is suitable for leaf contexts.
@@ -739,5 +767,26 @@ class Context : public ContextBase {
       std::make_unique<Parameters<T>>()};
 };
 
+// Workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=57728 which
+// should be moved back into the class definition once we no longer need to
+// support GCC versions prior to 6.3.
+template <typename T>
+Context<T>::Context() = default;
+
+template <typename T>
+Context<T>::Context(const Context<T>&) = default;
+
+template <typename T>
+std::ostream& operator<<(std::ostream& os, const Context<T>& context) {
+  os << context.to_string();
+  return os;
+}
+
 }  // namespace systems
 }  // namespace drake
+
+DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
+    struct ::drake::systems::StepInfo)
+
+DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
+    class ::drake::systems::Context)

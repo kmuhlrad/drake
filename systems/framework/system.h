@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "drake/common/autodiff.h"
+#include "drake/common/default_scalars.h"
 #include "drake/common/drake_assert.h"
 #include "drake/common/drake_bool.h"
 #include "drake/common/drake_copyable.h"
@@ -20,6 +21,7 @@
 #include "drake/common/drake_throw.h"
 #include "drake/common/nice_type_name.h"
 #include "drake/common/pointer_cast.h"
+#include "drake/common/random.h"
 #include "drake/common/symbolic.h"
 #include "drake/common/text_logging.h"
 #include "drake/common/unused.h"
@@ -64,14 +66,6 @@ class SystemImpl {
 };
 #endif  // DRAKE_DOXYGEN_CXX
 
-// TODO(russt): As discussed with sammy-tri, we could replace this with a
-// a templated class that exposes the required methods from the concept.
-/// Defines the implementation of the stdc++ concept UniformRandomBitGenerator
-/// to be used by the Systems classes.  This is provided as a work-around to
-/// enable the use of the generator in virtual methods (which cannot be
-/// templated on the generator type).
-typedef std::mt19937 RandomGenerator;
-
 /// Base class for all System functionality that is dependent on the templatized
 /// scalar type T for input, state, parameters, and outputs.
 ///
@@ -82,7 +76,7 @@ class System : public SystemBase {
   // System objects are neither copyable nor moveable.
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(System)
 
-  ~System() override = default;
+  ~System() override;
 
   //----------------------------------------------------------------------------
   /// @name           Resource allocation and initialization
@@ -139,14 +133,6 @@ class System : public SystemBase {
     return output;
   }
 
-#ifndef DRAKE_DOXYGEN_CXX
-  // TODO(sherm1) Remove this after 10/1/2018 (three months).
-  DRAKE_DEPRECATED("Call AllocateOutput() with no Context argument.")
-  std::unique_ptr<SystemOutput<T>> AllocateOutput(const Context<T>&) const {
-    return AllocateOutput();
-  }
-#endif
-
   /// Returns a ContinuousState of the same size as the continuous_state
   /// allocated in CreateDefaultContext. The simulator will provide this state
   /// as the output argument to EvalTimeDerivatives.
@@ -201,9 +187,9 @@ class System : public SystemBase {
 
     // Set the default parameters, checking that the number of parameters does
     // not change.
-    const int num_params = context->num_numeric_parameters();
+    const int num_params = context->num_numeric_parameter_groups();
     SetDefaultParameters(*context, &context->get_mutable_parameters());
-    DRAKE_DEMAND(num_params == context->num_numeric_parameters());
+    DRAKE_DEMAND(num_params == context->num_numeric_parameter_groups());
   }
 
   /// Assigns random values to all elements of the state.
@@ -258,10 +244,10 @@ class System : public SystemBase {
 
     // Set the default parameters, checking that the number of parameters does
     // not change.
-    const int num_params = context->num_numeric_parameters();
+    const int num_params = context->num_numeric_parameter_groups();
     SetRandomParameters(*context, &context->get_mutable_parameters(),
                         generator);
-    DRAKE_DEMAND(num_params == context->num_numeric_parameters());
+    DRAKE_DEMAND(num_params == context->num_numeric_parameter_groups());
   }
 
   /// For each input port, allocates a fixed input of the concrete type
@@ -506,6 +492,7 @@ class System : public SystemBase {
     return entry.Eval<T>(context);
   }
 
+  // TODO(jwnimmer-tri) Deprecate me.
   /// Returns the value of the vector-valued input port with the given
   /// `port_index` as a BasicVector or a specific subclass `Vec` derived from
   /// BasicVector. Causes the value to become up to date first if necessary. See
@@ -548,6 +535,7 @@ class System : public SystemBase {
     return value;
   }
 
+  // TODO(jwnimmer-tri) Deprecate me.
   /// Returns the value of the vector-valued input port with the given
   /// `port_index` as an %Eigen vector. Causes the value to become up to date
   /// first if necessary. See EvalAbstractInput() for more information.
@@ -650,6 +638,35 @@ class System : public SystemBase {
       throw std::logic_error("Error vector is mis-sized.");
     return DoCalcConstraintErrorNorm(context, error);
   }
+
+  /// Adds an "external" constraint to this System.
+  ///
+  /// This method is intended for use by applications that are examining this
+  /// System to add additional constraints based on their particular situation
+  /// (e.g., that a velocity state element has an upper bound); it is not
+  /// intended for declaring intrinsic constraints that some particular System
+  /// subclass might always impose on itself (e.g., that a mass parameter is
+  /// non-negative).  To that end, this method should not be called by
+  /// subclasses of `this` during their constructor.
+  ///
+  /// The `constraint` will automatically persist across system scalar
+  /// conversion.
+  SystemConstraintIndex AddExternalConstraint(
+      ExternalSystemConstraint constraint) {
+    const auto& calc = constraint.get_calc<T>();
+    if (calc) {
+      constraints_.emplace_back(std::make_unique<SystemConstraint<T>>(
+          this, calc, constraint.bounds(), constraint.description()));
+    } else {
+      constraints_.emplace_back(std::make_unique<SystemConstraint<T>>(
+          this, fmt::format(
+              "{} (disabled for this scalar type)",
+              constraint.description())));
+    }
+    external_constraints_.emplace_back(std::move(constraint));
+    return SystemConstraintIndex(constraints_.size() - 1);
+  }
+
   //@}
 
   //----------------------------------------------------------------------------
@@ -728,7 +745,7 @@ class System : public SystemBase {
 
     // Copy current state to the passed-in state, as specified in the
     // documentation for DoCalcUnrestrictedUpdate().
-    state->CopyFrom(context.get_state());
+    state->SetFrom(context.get_state());
 
     DispatchUnrestrictedUpdateHandler(context, events, state);
 
@@ -1034,8 +1051,9 @@ class System : public SystemBase {
     return nullptr;
   }
 
-  // The derived class implementation should provide exactly one event of the
-  // appropriate type with a kForced trigger type.
+  // The derived class implementation shall create the appropriate collection
+  // for each of these three methods.
+  //
   // Consumers of this class should never need to call the three methods below.
   // These three methods would ideally be designated as "protected", but
   // Diagram::AllocateForcedXEventCollection() needs to call these methods and,
@@ -1336,7 +1354,14 @@ class System : public SystemBase {
   /// returns nullptr if this System does not support autodiff, instead of
   /// throwing an exception.
   std::unique_ptr<System<AutoDiffXd>> ToAutoDiffXdMaybe() const {
-    return system_scalar_converter_.Convert<AutoDiffXd, T>(*this);
+    using U = AutoDiffXd;
+    auto result = system_scalar_converter_.Convert<U, T>(*this);
+    if (result) {
+      for (const auto& item : external_constraints_) {
+        result->AddExternalConstraint(item);
+      }
+    }
+    return result;
   }
   //@}
 
@@ -1391,7 +1416,14 @@ class System : public SystemBase {
   /// nullptr if this System does not support symbolic, instead of throwing an
   /// exception.
   std::unique_ptr<System<symbolic::Expression>> ToSymbolicMaybe() const {
-    return system_scalar_converter_.Convert<symbolic::Expression, T>(*this);
+    using U = symbolic::Expression;
+    auto result = system_scalar_converter_.Convert<U, T>(*this);
+    if (result) {
+      for (const auto& item : external_constraints_) {
+        result->AddExternalConstraint(item);
+      }
+    }
+    return result;
   }
   //@}
 
@@ -1414,28 +1446,34 @@ class System : public SystemBase {
 
     for (int i = 0; i < get_num_input_ports(); ++i) {
       const auto& input_port = get_input_port(i);
-
-      if (input_port.get_data_type() == kVectorValued) {
-        // For vector-valued input ports, we placewise initialize a fixed input
-        // vector using the explicit conversion from double to T.
-        const BasicVector<double>* other_vec =
-            other_system.EvalVectorInput(other_context, i);
-        if (other_vec == nullptr) continue;
-        auto our_vec = this->AllocateInputVector(input_port);
-        for (int j = 0; j < our_vec->size(); ++j) {
-          our_vec->SetAtIndex(j, T(other_vec->GetAtIndex(j)));
-        }
-        target_context->FixInputPort(i, *our_vec);
-      } else if (input_port.get_data_type() == kAbstractValued) {
-        // For abstract-valued input ports, we just clone the value and fix
-        // it to the port.
-        const AbstractValue* other_value =
-            other_system.EvalAbstractInput(other_context, i);
-        if (other_value == nullptr) continue;
-        target_context->FixInputPort(i, other_value->Clone());
-      } else {
-        DRAKE_ABORT_MSG("Unknown input port type.");
+      const auto& other_port = other_system.get_input_port(i);
+      if (!other_port.HasValue(other_context)) {
+        continue;
       }
+
+      switch (input_port.get_data_type()) {
+        case kVectorValued: {
+          // For vector-valued input ports, we placewise initialize a fixed
+          // input vector using the explicit conversion from double to T.
+          const Eigen::VectorBlock<const VectorX<double>> other_vec =
+              other_port.Eval(other_context);
+          auto our_vec = this->AllocateInputVector(input_port);
+          for (int j = 0; j < our_vec->size(); ++j) {
+            (*our_vec)[j] = T(other_vec[j]);
+          }
+          target_context->FixInputPort(i, *our_vec);
+          continue;
+        }
+        case kAbstractValued: {
+          // For abstract-valued input ports, we just clone the value and fix
+          // it to the port.
+          const auto& other_value =
+              other_port.Eval<AbstractValue>(other_context);
+          target_context->FixInputPort(i, other_value);
+          continue;
+        }
+      }
+      DRAKE_UNREACHABLE();
     }
   }
 
@@ -1679,14 +1717,17 @@ class System : public SystemBase {
   /// @throws std::logic_error for a duplicate port name.
   /// @returns the declared port.
   const InputPort<T>& DeclareInputPort(
-      std::string name, PortDataType type, int size,
+      variant<std::string, UseDefaultName> name, PortDataType type, int size,
       optional<RandomDistribution> random_type = nullopt) {
     const InputPortIndex port_index(get_num_input_ports());
 
     const DependencyTicket port_ticket(this->assign_next_dependency_ticket());
-    this->AddInputPort(std::make_unique<InputPort<T>>(
+    auto eval = [this, port_index](const ContextBase& context_base) {
+      return this->EvalAbstractInput(context_base, port_index);
+    };
+    this->AddInputPort(internal::FrameworkFactory::Make<InputPort<T>>(
         this, this, NextInputPortName(std::move(name)), port_index, port_ticket,
-        type, size, random_type));
+        type, size, random_type, std::move(eval)));
     return get_input_port(port_index);
   }
 
@@ -1710,25 +1751,19 @@ class System : public SystemBase {
   }
   //@}
 
-#ifndef DRAKE_DOXYGEN_CXX
-  // Remove this overload on or about 2018-12-01.
-  DRAKE_DEPRECATED("Use one of the other overloads.")
-  const InputPort<T>& DeclareAbstractInputPort() {
-    return DeclareInputPort(kUseDefaultName, kAbstractValued, 0 /* size */);
-  }
-
-  // Remove this overload on or about 2018-12-01.
-  DRAKE_DEPRECATED("Use one of the other overloads.")
-  const InputPort<T>& DeclareAbstractInputPort(std::string name) {
-    return DeclareInputPort(std::move(name), kAbstractValued, 0 /* size */);
-  }
-#endif
-
   /// Adds an already-created constraint to the list of constraints for this
   /// System.  Ownership of the SystemConstraint is transferred to this system.
   SystemConstraintIndex AddConstraint(
       std::unique_ptr<SystemConstraint<T>> constraint) {
     DRAKE_DEMAND(constraint != nullptr);
+    DRAKE_DEMAND(&constraint->get_system() == this);
+    if (!external_constraints_.empty()) {
+      throw std::logic_error(fmt::format(
+          "System {} cannot add an internal constraint (named {}) "
+          "after an external constraint (named {}) has already been added",
+          GetSystemName(), constraint->description(),
+          external_constraints_.front().description()));
+    }
     constraints_.push_back(std::move(constraint));
     return SystemConstraintIndex(constraints_.size() - 1);
   }
@@ -2051,34 +2086,53 @@ class System : public SystemBase {
   }
   //@}
 
+  bool forced_publish_events_exist() const {
+    return forced_publish_events_ != nullptr;
+  }
+
+  bool forced_discrete_update_events_exist() const {
+    return forced_discrete_update_events_ != nullptr;
+  }
+
+  bool forced_unrestricted_update_events_exist() const {
+    return forced_unrestricted_update_events_ != nullptr;
+  }
+
+  EventCollection<PublishEvent<T>>& get_mutable_forced_publish_events() {
+    return *forced_publish_events_;
+  }
+
   const EventCollection<PublishEvent<T>>&
   get_forced_publish_events() const {
-    return *forced_publish_;
+    DRAKE_DEMAND(forced_publish_events_.get());
+    return *forced_publish_events_;
   }
 
   const EventCollection<DiscreteUpdateEvent<T>>&
   get_forced_discrete_update_events() const {
-    return *forced_discrete_update_;
+    DRAKE_DEMAND(forced_discrete_update_events_.get());
+    return *forced_discrete_update_events_;
   }
 
   const EventCollection<UnrestrictedUpdateEvent<T>>&
   get_forced_unrestricted_update_events() const {
-    return *forced_unrestricted_update_;
+    DRAKE_DEMAND(forced_unrestricted_update_events_.get());
+    return *forced_unrestricted_update_events_;
   }
 
   void set_forced_publish_events(
   std::unique_ptr<EventCollection<PublishEvent<T>>> forced) {
-    forced_publish_ = std::move(forced);
+    forced_publish_events_ = std::move(forced);
   }
 
   void set_forced_discrete_update_events(
   std::unique_ptr<EventCollection<DiscreteUpdateEvent<T>>> forced) {
-    forced_discrete_update_ = std::move(forced);
+    forced_discrete_update_events_ = std::move(forced);
   }
 
   void set_forced_unrestricted_update_events(
   std::unique_ptr<EventCollection<UnrestrictedUpdateEvent<T>>> forced) {
-    forced_unrestricted_update_ = std::move(forced);
+    forced_unrestricted_update_events_ = std::move(forced);
   }
 
  private:
@@ -2101,7 +2155,8 @@ class System : public SystemBase {
   std::function<void(const AbstractValue&)> MakeFixInputPortTypeChecker(
       InputPortIndex port_index) const final {
     const InputPort<T>& port = this->get_input_port(port_index);
-    const std::string pathname = this->GetSystemPathname();
+    const std::string& port_name = port.get_name();
+    const std::string path_name = this->GetSystemPathname();
 
     // Note that our lambdas below will capture all necessary items by-value,
     // so that they do not rely on this System still being alive.  (We do not
@@ -2117,11 +2172,11 @@ class System : public SystemBase {
         // fine to let them also handle detailed error reporting on their own.
         const std::type_info& expected_type =
             this->AllocateInputAbstract(port)->static_type_info();
-        return [&expected_type, port_index, pathname](
+        return [&expected_type, port_index, path_name, port_name](
             const AbstractValue& actual) {
           if (actual.static_type_info() != expected_type) {
-            ThrowInputPortHasWrongType(
-                "FixInputPortTypeCheck", pathname, port_index,
+            SystemBase::ThrowInputPortHasWrongType(
+                "FixInputPortTypeCheck", path_name, port_index, port_name,
                 NiceTypeName::Get(expected_type),
                 NiceTypeName::Get(actual.type_info()));
           }
@@ -2133,20 +2188,20 @@ class System : public SystemBase {
         const std::unique_ptr<BasicVector<T>> model_vector =
             this->AllocateInputVector(port);
         const int expected_size = model_vector->size();
-        return [expected_size, port_index, pathname](
+        return [expected_size, port_index, path_name, port_name](
             const AbstractValue& actual) {
           const BasicVector<T>* const actual_vector =
               actual.MaybeGetValue<BasicVector<T>>();
           if (actual_vector == nullptr) {
             SystemBase::ThrowInputPortHasWrongType(
-                "FixInputPortTypeCheck", pathname, port_index,
+                "FixInputPortTypeCheck", path_name, port_index, port_name,
                 NiceTypeName::Get<Value<BasicVector<T>>>(),
                 NiceTypeName::Get(actual));
           }
           // Check that vector sizes match.
           if (actual_vector->size() != expected_size) {
             SystemBase::ThrowInputPortHasWrongType(
-                "FixInputPortTypeCheck", pathname, port_index,
+                "FixInputPortTypeCheck", path_name, port_index, port_name,
                 fmt::format("{} with size={}",
                             NiceTypeName::Get<BasicVector<T>>(),
                             expected_size),
@@ -2157,7 +2212,7 @@ class System : public SystemBase {
         };
       }
     }
-    DRAKE_ABORT();
+    DRAKE_UNREACHABLE();
   }
 
   // Shared code for updating a vector input port and returning a pointer to its
@@ -2194,17 +2249,30 @@ class System : public SystemBase {
     return basic_value;
   }
 
+  // The constraints_ vector encompass all constraints on this system, whether
+  // they were declared by a concrete subclass during construction (e.g., by
+  // calling DeclareInequalityConstraint), or added after construction (e.g.,
+  // by AddExternalConstraint).  The constraints are listed in the order they
+  // were added, which means that the construction-time constraints will always
+  // appear earlier in the vector than the post-construction constraints.
   std::vector<std::unique_ptr<SystemConstraint<T>>> constraints_;
+  // The external_constraints_ vector only contains constraints added after
+  // construction (e.g., by AddExternalConstraint), in the order they were
+  // added.  The contents of this vector is only used during scalar conversion
+  // (so that the external constraints are preserved); for runtime calculations,
+  // only the constraints_ vector is used.
+  std::vector<ExternalSystemConstraint> external_constraints_;
 
   // These are only used to dispatch forced event handling. For a LeafSystem,
-  // all of these have exactly one kForced triggered event. For a Diagram, they
+  // these contain at least one kForced triggered event. For a Diagram, they
   // are DiagramEventCollection, whose leafs are LeafEventCollection with
-  // exactly one kForced triggered event.
-  std::unique_ptr<EventCollection<PublishEvent<T>>> forced_publish_{nullptr};
+  // one or more kForced triggered events.
+  std::unique_ptr<EventCollection<PublishEvent<T>>>
+      forced_publish_events_{nullptr};
   std::unique_ptr<EventCollection<DiscreteUpdateEvent<T>>>
-      forced_discrete_update_{nullptr};
+      forced_discrete_update_events_{nullptr};
   std::unique_ptr<EventCollection<UnrestrictedUpdateEvent<T>>>
-      forced_unrestricted_update_{nullptr};
+      forced_unrestricted_update_events_{nullptr};
 
   // Functions to convert this system to use alternative scalar types.
   SystemScalarConverter system_scalar_converter_;
@@ -2216,5 +2284,14 @@ class System : public SystemBase {
   CacheIndex nonconservative_power_cache_index_;
 };
 
+// Workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=57728 which
+// should be moved back into the class definition once we no longer need to
+// support GCC versions prior to 6.3.
+template <typename T>
+System<T>::~System() = default;
+
 }  // namespace systems
 }  // namespace drake
+
+DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
+    class ::drake::systems::System)

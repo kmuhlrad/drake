@@ -19,7 +19,7 @@ namespace pendulum {
 ///
 /// @system{PendulumPlant,
 ///    @input_port{tau},
-///    @output_port{state} @output_port{geometry pose}
+///    @output_port{state} @output_port{geometry_pose}
 /// }
 ///
 /// @tparam T The vector element type, which must be a valid Eigen scalar.
@@ -34,6 +34,7 @@ class PendulumPlant final : public systems::LeafSystem<T> {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(PendulumPlant);
 
+  /** Constructs a default plant. */
   PendulumPlant();
 
   /// Scalar-converting copy constructor.  See @ref system_scalar_conversion.

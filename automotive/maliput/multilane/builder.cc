@@ -320,15 +320,14 @@ Vector3<double> DirectionOutFromLane(const api::Lane* const lane,
   const Vector3<double> s_hat = Vector3<double>::UnitX();
   switch (end) {
     case api::LaneEnd::kStart: {
-      return -lane->GetOrientation(
-          {0., -r_offset, 0.}).matrix() * s_hat;
+      return -(lane->GetOrientation({0., -r_offset, 0.}).matrix() * s_hat);
     }
     case api::LaneEnd::kFinish: {
-      return lane->GetOrientation(
-          {lane->length(), r_offset, 0.}).matrix() * s_hat;
+      return lane->GetOrientation({lane->length(), r_offset, 0.}).matrix() *
+             s_hat;
     }
-    default: { DRAKE_ABORT(); }
   }
+  DRAKE_UNREACHABLE();
 }
 
 
@@ -438,6 +437,7 @@ void Builder::AttachBranchPoint(
     std::map<Endpoint, BranchPoint*, EndpointFuzzyOrder>* bp_map) const {
   BranchPoint* bp = FindOrCreateBranchPoint(point, road_geometry, bp_map);
   // Tell the lane about its branch-point.
+  DRAKE_DEMAND((end == api::LaneEnd::kStart) || (end == api::LaneEnd::kFinish));
   switch (end) {
     case api::LaneEnd::kStart: {
       lane->SetStartBp(bp);
@@ -447,7 +447,6 @@ void Builder::AttachBranchPoint(
       lane->SetEndBp(bp);
       break;
     }
-    default: { DRAKE_ABORT(); }
   }
   // Now, tell the branch-point about the lane.
   //

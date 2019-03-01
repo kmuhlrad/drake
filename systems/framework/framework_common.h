@@ -3,11 +3,14 @@
 #include <algorithm>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "drake/common/drake_assert.h"
 #include "drake/common/drake_optional.h"
+#include "drake/common/drake_variant.h"
 #include "drake/common/type_safe_index.h"
+#include "drake/common/value.h"
 
 namespace drake {
 namespace systems {
@@ -60,6 +63,9 @@ using NumericParameterIndex = TypeSafeIndex<class NumericParameterTag>;
 and its corresponding Context. */
 using AbstractParameterIndex = TypeSafeIndex<class AbstractParameterTag>;
 
+/** Serves as the local index for constraints declared on a given System. */
+using SystemConstraintIndex = TypeSafeIndex<class SystemConstraintTag>;
+
 /** All system ports are either vectors of Eigen scalars, or black-box
 AbstractValues which may contain any type. */
 typedef enum {
@@ -72,20 +78,41 @@ typedef enum {
 rather depends on what it is connected to (not yet implemented). */
 constexpr int kAutoSize = -1;
 
-// TODO(sherm1) Consider using std::variant<string,systems::UseDefaultName>
-// as an alternative to this hack.
-/** Name to use when you want a default one generated. This is set to an ugly
-string that no one will want to use as an actual name. You should normally
+/** (Advanced.)  Tag type that indicates a system or port should use a default
+name, instead of a user-provided name.  Most users will use the kUseDefaultName
+constant, without ever having to mention this type. */
+struct UseDefaultName final {};
+
+/** Name to use when you want a default one generated. You should normally
 give meaningful names to all Drake System entities you create rather than
 using this. */
-constexpr const char* kUseDefaultName = "__use_default_name__";
+constexpr UseDefaultName kUseDefaultName = {};
+
+/** (Advanced.) Sugar that compares a variant against kUseDefaultName. */
+inline bool operator==(
+    const variant<std::string, UseDefaultName>& value,
+    const UseDefaultName&) {
+  return holds_alternative<UseDefaultName>(value);
+}
 
 #ifndef DRAKE_DOXYGEN_CXX
-class AbstractValue;
 class ContextBase;
 class InputPortBase;
 
 namespace internal {
+
+// A utility to call the package-private constructor of some framework classes.
+class FrameworkFactory {
+ public:
+  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(FrameworkFactory)
+  FrameworkFactory() = delete;
+  ~FrameworkFactory() = delete;
+
+  template <typename T, typename... Args>
+  static std::unique_ptr<T> Make(Args... args) {
+    return std::unique_ptr<T>(new T(std::forward<Args>(args)...));
+  }
+};
 
 // TODO(sherm1) These interface classes shouldn't be here -- split into their
 // own headers. As written they obscure the limited use of these interfaces

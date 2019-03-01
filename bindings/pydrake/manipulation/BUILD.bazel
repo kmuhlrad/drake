@@ -36,8 +36,8 @@ drake_pybind_library(
     name = "planner_py",
     cc_deps = [
         "//bindings/pydrake:documentation_pybind",
-        "//bindings/pydrake/util:drake_optional_pybind",
-        "//bindings/pydrake/util:eigen_pybind",
+        "//bindings/pydrake/common:drake_optional_pybind",
+        "//bindings/pydrake/common:eigen_pybind",
     ],
     cc_srcs = ["planner_py.cc"],
     package_info = PACKAGE_INFO,
@@ -105,5 +105,6 @@ install(
 )
 
 add_lint_tests(
+    cpplint_data = ["//bindings/pydrake:.clang-format"],
     enable_clang_format_lint = True,
 )

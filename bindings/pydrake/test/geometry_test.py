@@ -5,7 +5,7 @@ import warnings
 
 from pydrake.lcm import DrakeMockLcm
 from pydrake.systems.framework import DiagramBuilder, InputPort, OutputPort
-from pydrake.util.deprecation import DrakeDeprecationWarning
+from pydrake.common.deprecation import DrakeDeprecationWarning
 
 
 class TestGeometry(unittest.TestCase):
@@ -41,7 +41,7 @@ class TestGeometry(unittest.TestCase):
     def test_query_object_api(self):
         # TODO(eric.cousineau): Create self-contained unittests (#9899).
         # Pending that, the relevant API is exercised via
-        # `test_scene_graph_queries` in `multibody_tree_test.py`.
+        # `test_scene_graph_queries` in `plant_test.py`.
         pass
 
     def test_identifier_api(self):
@@ -69,3 +69,11 @@ class TestGeometry(unittest.TestCase):
         self.assertTupleEqual(obj.p_WCa.shape, (3,))
         self.assertTupleEqual(obj.p_WCb.shape, (3,))
         self.assertEqual(obj.depth, -1.)
+
+    def test_signed_distance_api(self):
+        obj = mut.SignedDistancePair()
+        self.assertIsInstance(obj.id_A, mut.GeometryId)
+        self.assertIsInstance(obj.id_B, mut.GeometryId)
+        self.assertTupleEqual(obj.p_ACa.shape, (3,))
+        self.assertTupleEqual(obj.p_BCb.shape, (3,))
+        self.assertIsInstance(obj.distance, float)

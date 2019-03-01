@@ -58,6 +58,7 @@ LIBDRAKE_COMPONENTS = [
     "//examples/manipulation_station:manipulation_station_hardware_interface",  # unpackaged  # noqa
     "//examples/pendulum:pendulum_plant",  # unpackaged
     "//examples/pendulum:pendulum_vector_types",  # unpackaged
+    "//examples/quadrotor:quadrotor_plant",  # unpackaged
     "//examples/rimless_wheel:rimless_wheel",  # unpackaged
     "//examples/rimless_wheel:rimless_wheel_vector_types",  # unpackaged
     "//examples/van_der_pol:van_der_pol",  # unpackaged
@@ -66,7 +67,9 @@ LIBDRAKE_COMPONENTS = [
     "//geometry/dev/render",
     "//geometry/dev/render/shaders",
     "//geometry/query_results",
+    "//geometry/test_utilities:geometry_set_tester",  # unpackaged
     "//lcm",
+    "//manipulation/kuka_iiwa",
     "//manipulation/perception",
     "//manipulation/planner",
     "//manipulation/schunk_wsg",
@@ -79,13 +82,13 @@ LIBDRAKE_COMPONENTS = [
     "//multibody/benchmarks/mass_damper_spring",
     "//multibody/benchmarks/pendulum",
     "//multibody/constraint",
+    "//multibody/hydroelastic_contact",
     "//multibody/inverse_kinematics",
-    "//multibody/multibody_tree",
-    "//multibody/multibody_tree/implicit_stribeck:implicit_stribeck_solver",  # unpackaged  # noqa
-    "//multibody/multibody_tree/math",
-    "//multibody/multibody_tree/multibody_plant",
-    "//multibody/multibody_tree/multibody_plant:contact_results_to_lcm",  # unpackaged  # noqa
-    "//multibody/multibody_tree/parsing",
+    "//multibody/math",
+    "//multibody/parsing",
+    "//multibody/plant",
+    "//multibody/plant:contact_results_to_lcm",  # unpackaged
+    "//multibody/tree",
     "//perception",
     "//solvers",
     "//systems/analysis",
@@ -93,6 +96,7 @@ LIBDRAKE_COMPONENTS = [
     "//systems/estimators",
     "//systems/framework",
     "//systems/lcm",
+    "//systems/optimization",
     "//systems/plants/spring_mass_system",
     "//systems/primitives",
     "//systems/rendering",

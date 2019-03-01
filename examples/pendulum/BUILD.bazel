@@ -32,6 +32,7 @@ drake_cc_library(
     visibility = ["//visibility:public"],
     deps = [
         ":pendulum_vector_types",
+        "//geometry:geometry_visualization",
         "//geometry:scene_graph",
         "//math:geometric_transform",
         "//systems/framework",
@@ -100,12 +101,15 @@ drake_cc_binary(
     add_test_rule = 1,
     data = [":models"],
     test_rule_args = ["--target_realtime_rate=0.0"],
+    # Non-deterministic IPOPT-related failures on macOS, see #10276.
+    test_rule_flaky = 1,
     deps = [
         ":pendulum_plant",
         "//common:find_resource",
         "//common:is_approx_equal_abstol",
         "//geometry:geometry_visualization",
         "//lcm",
+        "//solvers:solve",
         "//systems/analysis:simulator",
         "//systems/controllers:pid_controlled_system",
         "//systems/framework",
@@ -119,9 +123,12 @@ drake_cc_binary(
     name = "print_symbolic_dynamics",
     srcs = ["print_symbolic_dynamics.cc"],
     add_test_rule = 1,
+    data = [":models"],
     deps = [
         ":pendulum_plant",
         "//common:symbolic",
+        "//multibody/parsing",
+        "//multibody/plant",
     ],
 )
 
@@ -142,11 +149,11 @@ drake_cc_googletest(
     data = ["Pendulum.urdf"],
     deps = [
         ":pendulum_plant",
+        "//attic/multibody:rigid_body_tree",
         "//attic/multibody/parsers",
         "//attic/multibody/rigid_body_plant",
         "//common:find_resource",
         "//common/test_utilities:eigen_matrix_compare",
-        "//multibody:rigid_body_tree",
     ],
 )
 

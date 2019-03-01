@@ -109,6 +109,8 @@ drake_cc_library(
     hdrs = ["discrete_derivative.h"],
     deps = [
         ":linear_system",
+        ":multiplexer",
+        ":pass_through",
         "//systems/framework",
     ],
 )
@@ -443,6 +445,7 @@ drake_cc_googletest(
         ":affine_linear_test",
         ":linear_system",
         "//common/test_utilities:eigen_matrix_compare",
+        "//common/test_utilities:expect_throws_message",
         "//examples/pendulum:pendulum_plant",
         "//systems/framework",
         "//systems/framework/test_utilities",
@@ -521,7 +524,7 @@ drake_cc_googletest(
         ":random_source",
         ":signal_logger",
         "//common/test_utilities:eigen_matrix_compare",
-        "//systems/analysis",
+        "//systems/analysis:simulator",
     ],
 )
 
@@ -540,6 +543,7 @@ drake_cc_googletest(
         ":linear_system",
         ":signal_logger",
         "//common/test_utilities:eigen_matrix_compare",
+        "//common/test_utilities:expect_throws_message",
         "//systems/analysis:simulator",
         "//systems/framework",
     ],

@@ -158,8 +158,10 @@ class Constraint : public EvaluatorBase {
                                 const double tol) const {
     AutoDiffVecXd y(num_constraints());
     DoEval(x, &y);
-    return (y.array() >= lower_bound_.cast<AutoDiffXd>().array() - tol).all() &&
-           (y.array() <= upper_bound_.cast<AutoDiffXd>().array() + tol).all();
+    auto get_value = [](const AutoDiffXd& v) { return v.value(); };
+    return
+        (y.array().unaryExpr(get_value) >= lower_bound_.array() - tol).all() &&
+        (y.array().unaryExpr(get_value) <= upper_bound_.array() + tol).all();
   }
 
   virtual symbolic::Formula DoCheckSatisfied(
@@ -590,9 +592,9 @@ class LinearEqualityConstraint : public LinearConstraint {
    * instead.
    */
   template <typename DerivedA, typename DerivedL, typename DerivedU>
-  void UpdateCoefficients(const Eigen::MatrixBase<DerivedA>& new_A,
-                          const Eigen::MatrixBase<DerivedL>& new_lb,
-                          const Eigen::MatrixBase<DerivedU>& new_ub) {
+  void UpdateCoefficients(const Eigen::MatrixBase<DerivedA>&,
+                          const Eigen::MatrixBase<DerivedL>&,
+                          const Eigen::MatrixBase<DerivedU>&) {
     static_assert(
         !std::is_same<DerivedA, DerivedA>::value,
         "This method should not be called form `LinearEqualityConstraint`");
@@ -738,10 +740,10 @@ class PositiveSemidefiniteConstraint : public Constraint {
    * /////////////////////////////////////////////////////////////
    *
    * // Now solve the program.
-   * prog.Solve();
+   * auto result = Solve(prog);
    *
    * // Retrieve the solution of matrix S.
-   * auto S_value = GetSolution(S);
+   * auto S_value = GetSolution(S, result);
    *
    * // Compute the eigen values of the solution, to see if they are
    * // all non-negative.

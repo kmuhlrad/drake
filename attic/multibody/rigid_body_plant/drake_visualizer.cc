@@ -5,6 +5,7 @@
 #include <utility>
 
 #include "drake/common/text_logging.h"
+#include "drake/common/trajectories/piecewise_polynomial.h"
 #include "drake/multibody/rigid_body_plant/create_load_robot_message.h"
 #include "drake/systems/rendering/drake_visualizer_client.h"
 
@@ -29,13 +30,18 @@ DrakeVisualizer::DrakeVisualizer(const RigidBodyTree<double>& tree,
   if (enable_playback)
     log_.reset(new SignalLog<double>(tree.get_num_positions()));
 
-  PublishEvent<double> init_event(
-      Event<double>::TriggerType::kInitialization);
-  DeclareInitializationEvent(init_event);
+  DeclareInitializationPublishEvent(&DrakeVisualizer::PublishInitialMessage);
+  DeclareForcedPublishEvent(&DrakeVisualizer::PublishDrawMessage);
+
+  // This is disabled if a publish period is set.
+  DeclarePerStepPublishEvent(&DrakeVisualizer::PerStepPublishDrawMessage);
 }
 
 void DrakeVisualizer::set_publish_period(double period) {
-  LeafSystem<double>::DeclarePeriodicPublish(period);
+  DeclarePeriodicPublishEvent(
+      period, 0.0, &DrakeVisualizer::PublishDrawMessage);
+  // Disable the default per-step event.
+  publish_per_step_ = false;
 }
 
 void DrakeVisualizer::ReplayCachedSimulation() const {
@@ -78,7 +84,7 @@ void DrakeVisualizer::ReplayCachedSimulation() const {
 }
 
 void DrakeVisualizer::PlaybackTrajectory(
-    const trajectories::PiecewisePolynomial<double>& input_trajectory) const {
+    const trajectories::Trajectory<double>& input_trajectory) const {
   using Clock = std::chrono::steady_clock;
   using Duration = std::chrono::duration<double>;
   using TimePoint = std::chrono::time_point<Clock, Duration>;
@@ -119,16 +125,9 @@ void DrakeVisualizer::PlaybackTrajectory(
                 message_bytes.size(), sim_time);
 }
 
-void DrakeVisualizer::DoPublish(
-    const Context<double>& context,
-    const std::vector<const PublishEvent<double>*>& event) const {
-  // Initialization should only happen as a singleton event.
-  if (event.size() == 1 && event.front()->get_trigger_type() ==
-      Event<double>::TriggerType::kInitialization) {
-    PublishLoadRobot();
-    return;
-  }
-
+// Both periodic and forced-publish events trigger this handler.
+EventStatus DrakeVisualizer::PublishDrawMessage(
+    const Context<double>& context) const {
   // Obtains the input vector, which contains the generalized q,v state of the
   // RigidBodyTree.
   const BasicVector<double>* input_vector =
@@ -147,6 +146,7 @@ void DrakeVisualizer::DoPublish(
   // Publishes onto the specified LCM channel.
   lcm_->Publish("DRAKE_VIEWER_DRAW", message_bytes.data(),
                 message_bytes.size(), context.get_time());
+  return EventStatus::Succeeded();
 }
 
 void DrakeVisualizer::PublishLoadRobot() const {

@@ -1,6 +1,5 @@
 #include "drake/solvers/choose_best_solver.h"
 
-#include "drake/solvers/dreal_solver.h"
 #include "drake/solvers/equality_constrained_qp_solver.h"
 #include "drake/solvers/gurobi_solver.h"
 #include "drake/solvers/ipopt_solver.h"
@@ -57,8 +56,7 @@ SolverId ChooseBestSolver(const MathematicalProgram& prog) {
       "There is no available solver for the optimization program");
 }
 
-std::unique_ptr<MathematicalProgramSolverInterface> MakeSolver(
-    const SolverId& id) {
+std::unique_ptr<SolverInterface> MakeSolver(const SolverId& id) {
   if (id == LinearSystemSolver::id()) {
     return std::make_unique<LinearSystemSolver>();
   } else if (id == EqualityConstrainedQPSolver::id()) {

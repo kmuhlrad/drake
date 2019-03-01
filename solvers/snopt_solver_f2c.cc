@@ -72,7 +72,10 @@ unsigned int constexpr snopt_mincw = 500;
 unsigned int constexpr snopt_miniw = 500;
 unsigned int constexpr snopt_minrw = 500;
 
-struct SNOPTData : public MathematicalProgram::SolverData {
+struct SNOPTData final {
+  DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(SNOPTData)
+  SNOPTData() = default;
+
   std::vector<char> cw;
   std::vector<snopt::integer> iw;
   std::vector<snopt::doublereal> rw;
@@ -601,24 +604,31 @@ void UpdateLinearConstraint(const MathematicalProgram& prog,
 
 bool SnoptSolver::is_available() { return true; }
 
-SolutionResult SnoptSolver::Solve(MathematicalProgram& prog) const {
-  auto d = prog.GetSolverData<SNOPTData>();
+void SnoptSolver::DoSolve(
+    const MathematicalProgram& prog,
+    const Eigen::VectorXd& initial_guess,
+    const SolverOptions& merged_options,
+    MathematicalProgramResult* result) const {
+  // TODO(hongkai.dai): put SNOPTData inside SnoptSolverDetails, so that we do
+  // not need to allocate memory for SNOPTData when we call Solve repeatedly.
+  SNOPTData snopt_data{};
+  auto d = &snopt_data;
+
   const std::unordered_set<int> cost_gradient_indices =
       GetCostNonzeroGradientIndices(prog);
   SnoptUserFunInfo snopt_userfun_info;
   snopt_userfun_info.prog_ = &prog;
   snopt_userfun_info.cost_gradient_indices_ = &cost_gradient_indices;
-  SNOPTRun cur(d.get(), &snopt_userfun_info);
+  SNOPTRun cur(d, &snopt_userfun_info);
 
   snopt::integer nx = prog.num_vars();
   d->min_alloc_x(nx);
   snopt::doublereal* x = d->x.data();
   snopt::doublereal* xlow = d->xlow.data();
   snopt::doublereal* xupp = d->xupp.data();
-  const Eigen::VectorXd x_initial_guess = prog.initial_guess();
   for (int i = 0; i < nx; i++) {
-    if (!std::isnan(x_initial_guess(i))) {
-      x[i] = static_cast<snopt::doublereal>(x_initial_guess(i));
+    if (!std::isnan(initial_guess(i))) {
+      x[i] = static_cast<snopt::doublereal>(initial_guess(i));
     } else {
       x[i] = 0.0;
     }
@@ -755,7 +765,7 @@ SolutionResult SnoptSolver::Solve(MathematicalProgram& prog) const {
 
   // Determines if we should print out snopt debugging info.
   const std::unordered_map<std::string, std::string>& snopt_option_str =
-      prog.GetSolverOptionsStr(id());
+      merged_options.GetOptionsStr(id());
   const auto print_file_it = snopt_option_str.find("Print file");
   if (print_file_it != snopt_option_str.end()) {
     std::string print_file_name(print_file_it->second);
@@ -789,11 +799,11 @@ SolutionResult SnoptSolver::Solve(MathematicalProgram& prog) const {
   snopt::doublereal ObjAdd = 0.0;
   snopt::integer ObjRow = 1;  // feasibility problem (for now)
 
-  for (const auto it : prog.GetSolverOptionsDouble(id())) {
+  for (const auto it : merged_options.GetOptionsDouble(id())) {
     cur.snSetr(it.first, it.second);
   }
 
-  for (const auto it : prog.GetSolverOptionsInt(id())) {
+  for (const auto it : merged_options.GetOptionsInt(id())) {
     cur.snSeti(it.first, it.second);
   }
 
@@ -810,13 +820,13 @@ SolutionResult SnoptSolver::Solve(MathematicalProgram& prog) const {
       d->cw.data(), &d->lencw, d->iw.data(), &d->leniw, d->rw.data(), &d->lenrw,
       npname, 8 * nxname, 8 * nFname, 8 * d->lencw, 8 * d->lencw);
 
-  SolverResult solver_result(id());
-  solver_result.set_decision_variable_values(
-      Eigen::Map<VectorX<snopt::doublereal>>(x, nx).cast<double>());
-  solver_result.set_optimal_cost(*F);
-
-  // todo: extract the other useful quantities, too.
-
+  // Populate our results structure.
+  SnoptSolverDetails& solver_details =
+      result->SetSolverDetailsType<SnoptSolverDetails>();
+  solver_details.info = info;
+  solver_details.xmul = Eigen::Map<Eigen::VectorXd>(xmul, nx);
+  solver_details.F = Eigen::Map<Eigen::VectorXd>(F, nF);
+  solver_details.Fmul = Eigen::Map<Eigen::VectorXd>(Fmul, nF);
   SolutionResult solution_result{SolutionResult::kUnknownError};
   if (info >= 1 && info <= 6) {
     solution_result = SolutionResult::kSolutionFound;
@@ -825,7 +835,6 @@ SolutionResult SnoptSolver::Solve(MathematicalProgram& prog) const {
     if (info >= 11 && info <= 16) {
       solution_result = SolutionResult::kInfeasibleConstraints;
     } else if (info >= 20 && info <= 22) {
-      solver_result.set_optimal_cost(MathematicalProgram::kUnboundedCost);
       solution_result = SolutionResult::kUnbounded;
     } else if (info >= 30 && info <= 32) {
       solution_result = SolutionResult::kIterationLimit;
@@ -833,9 +842,19 @@ SolutionResult SnoptSolver::Solve(MathematicalProgram& prog) const {
       solution_result = SolutionResult::kInvalidInput;
     }
   }
-  prog.SetSolverResult(solver_result);
-  return solution_result;
+  result->set_solution_result(solution_result);
+  result->set_x_val(
+      Eigen::Map<VectorX<snopt::doublereal>>(x, nx).cast<double>());
+  if (solution_result == SolutionResult::kUnbounded) {
+    result->set_optimal_cost(MathematicalProgram::kUnboundedCost);
+  } else {
+    result->set_optimal_cost(*F);
+  }
 }
+
+bool SnoptSolver::is_thread_safe() { return false; }
+
+bool SnoptSolver::is_bounded_lp_broken() { return false; }
 
 }  // namespace solvers
 }  // namespace drake

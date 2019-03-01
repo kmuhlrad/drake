@@ -28,6 +28,11 @@ DEFINE_double(min_grid_resolution,
 DEFINE_bool(draw_elevation_bounds,
             drake::maliput::utility::ObjFeatures().draw_elevation_bounds,
             "Whether to draw the elevation bounds");
+DEFINE_double(simplify_mesh_threshold,
+              drake::maliput::utility::ObjFeatures().simplify_mesh_threshold,
+              "Optional tolerance for mesh simplification, in meters. Make it "
+              "equal to the road linear tolerance to get a mesh size reduction "
+              "while keeping geometrical fidelity.");
 
 namespace drake {
 namespace maliput {
@@ -77,10 +82,9 @@ int main(int argc, char* argv[]) {
       drake::log()->info("Loaded a multilane road geometry.");
       break;
     }
-    default: {
+    case MaliputImplementation::kUnknown: {
       drake::log()->error("Unknown map.");
-      DRAKE_ABORT();
-      break;
+      return 1;
     }
   }
 
@@ -88,7 +92,7 @@ int main(int argc, char* argv[]) {
   features.max_grid_unit = FLAGS_max_grid_unit;
   features.min_grid_resolution = FLAGS_min_grid_resolution;
   features.draw_elevation_bounds = FLAGS_draw_elevation_bounds;
-
+  features.simplify_mesh_threshold = FLAGS_simplify_mesh_threshold;
   drake::log()->info("Generating OBJ.");
   GenerateObjFile(rg.get(), FLAGS_obj_dir, FLAGS_obj_file, features);
 

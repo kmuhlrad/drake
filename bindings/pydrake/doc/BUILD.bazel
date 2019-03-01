@@ -13,6 +13,7 @@ drake_py_binary(
     ],
     add_test_rule = 1,
     data = [
+        "_static/css/custom.css",
         "conf.py",
     ],
     imports = ["."],
@@ -36,6 +37,7 @@ drake_py_binary(
 )
 
 add_lint_tests(
+    cpplint_data = ["//bindings/pydrake:.clang-format"],
     enable_clang_format_lint = True,
     python_lint_exclude = [":conf.py"],
 )

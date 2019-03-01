@@ -10,6 +10,7 @@
 #include "drake/automotive/maliput/api/lane.h"
 #include "drake/automotive/maliput/dragway/road_geometry.h"
 #include "drake/lcm/drake_mock_lcm.h"
+#include "drake/lcmt_driving_command_t.hpp"
 #include "drake/lcmt_simple_car_state_t.hpp"
 #include "drake/lcmt_viewer_draw.hpp"
 #include "drake/lcmt_viewer_load_robot.hpp"
@@ -17,7 +18,6 @@
 #include "drake/systems/framework/diagram_context.h"
 #include "drake/systems/lcm/lcm_publisher_system.h"
 #include "drake/systems/lcm/lcm_subscriber_system.h"
-#include "drake/systems/lcm/lcmt_drake_signal_translator.h"
 #include "drake/systems/rendering/pose_bundle.h"
 
 namespace drake {
@@ -32,15 +32,22 @@ GTEST_TEST(AutomotiveSimulatorTest, BasicTest) {
 }
 
 // Obtains the serialized version of the last message transmitted on LCM channel
-// @p channel. Uses @p translator to decode the message into @p result.
+// @p channel into @p result.
 void GetLastPublishedSimpleCarState(
     const std::string& channel,
-    const systems::lcm::LcmAndVectorBaseTranslator& translator,
     const lcm::DrakeMockLcm* mock_lcm,
     SimpleCarState<double>* result) {
-  const std::vector<uint8_t>& message =
+  const std::vector<uint8_t>& bytes =
       mock_lcm->get_last_published_message(channel);
-  translator.Deserialize(message.data(), message.size(), result);
+  drake::lcmt_simple_car_state_t message{};
+  const int status = message.decode(bytes.data(), 0, bytes.size());
+  if (status < 0) {
+    throw std::runtime_error("Failed to decode LCM message simple_car_state.");
+  }
+  result->set_x(message.x);
+  result->set_y(message.y);
+  result->set_heading(message.heading);
+  result->set_velocity(message.velocity);
 }
 
 // Covers AddPriusSimpleCar (and thus AddPublisher), Start, StepBy,
@@ -73,14 +80,15 @@ GTEST_TEST(AutomotiveSimulatorTest, TestPriusSimpleCar) {
   simulator->Start();
 
   // Set full throttle.
-  DrivingCommand<double> command;
-  command.set_acceleration(11.0);  // Arbitrary large positive.
+  drake::lcmt_driving_command_t command{};
+  command.acceleration = 11.0;  // Arbitrary large positive.
   lcm::DrakeMockLcm* mock_lcm =
       dynamic_cast<lcm::DrakeMockLcm*>(simulator->get_lcm());
   ASSERT_NE(nullptr, mock_lcm);
   std::vector<uint8_t> message_bytes;
-  command_sub.get_translator().Serialize(0.0 /* time */, command,
-                                         &message_bytes);
+  message_bytes.resize(command.getEncodedSize());
+  ASSERT_EQ(command.encode(message_bytes.data(), 0, message_bytes.size()),
+            message_bytes.size());
   mock_lcm->InduceSubscriberCallback(kCommandChannelName, &message_bytes[0],
                                      message_bytes.size());
 
@@ -92,8 +100,7 @@ GTEST_TEST(AutomotiveSimulatorTest, TestPriusSimpleCar) {
   simulator->StepBy(0.005);
   SimpleCarState<double> simple_car_state;
   GetLastPublishedSimpleCarState(
-      kSimpleCarStateChannelName, state_pub.get_translator(), mock_lcm,
-      &simple_car_state);
+      kSimpleCarStateChannelName, mock_lcm, &simple_car_state);
   EXPECT_GT(simple_car_state.x(), 0.0);
   EXPECT_LT(simple_car_state.x(), 0.001);
 
@@ -103,8 +110,7 @@ GTEST_TEST(AutomotiveSimulatorTest, TestPriusSimpleCar) {
   }
   // TODO(jwnimmer-tri) Check the timestamp of the final publication.
   GetLastPublishedSimpleCarState(
-      kSimpleCarStateChannelName, state_pub.get_translator(), mock_lcm,
-      &simple_car_state);
+      kSimpleCarStateChannelName, mock_lcm, &simple_car_state);
   EXPECT_GT(simple_car_state.x(), 1.0);
 
   // Confirm that appropriate draw messages are coming out. Just a few of the
@@ -440,9 +446,11 @@ GTEST_TEST(AutomotiveSimulatorTest, TestMaliputRailcar) {
 
   simulator->Start();
 
-  // Takes two steps to trigger the publishing of an LCM draw message.
-  simulator->StepBy(0.005);
-  simulator->StepBy(0.005);
+  // AutomotiveSimulator's call to ConnectToDrakeVisualizer causes LCM draw
+  // messages to be published every 1/60s (starting at time zero). If that
+  // rate is changed, the step size here will need to be changed to match.
+  const double step_size = 1.0/60;
+  simulator->StepBy(step_size);
 
   const double initial_x = 0.0;
 
@@ -455,8 +463,7 @@ GTEST_TEST(AutomotiveSimulatorTest, TestMaliputRailcar) {
 
   // Sets the commanded acceleration to be zero.
   simulator->SetMaliputRailcarAccelerationCommand(id, 0);
-  simulator->StepBy(0.005);
-  simulator->StepBy(0.005);
+  simulator->StepBy(step_size);
 
   // Verifies that the vehicle hasn't moved yet. This is expected since the
   // commanded acceleration is zero.
@@ -469,8 +476,7 @@ GTEST_TEST(AutomotiveSimulatorTest, TestMaliputRailcar) {
   simulator->SetMaliputRailcarAccelerationCommand(id, 10);
 
   // Advances the simulation to allow the MaliputRailcar to begin accelerating.
-  simulator->StepBy(0.005);
-  simulator->StepBy(0.005);
+  simulator->StepBy(step_size);
 
   // Verifies that the MaliputRailcar has moved forward relative to prior to
   // the nonzero acceleration command being issued.

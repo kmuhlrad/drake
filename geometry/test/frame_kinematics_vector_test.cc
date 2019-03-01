@@ -102,7 +102,7 @@ GTEST_TEST(FrameKinematicsVector, WorkingWithValues) {
   DRAKE_EXPECT_THROWS_MESSAGE(poses.value(FrameId::get_new_id()),
                               std::runtime_error,
                               "Can't acquire value for id \\d+. It is not part "
-                              "of the kinematics data id set.")
+                              "of the kinematics data id set.");
 }
 
 GTEST_TEST(FrameKinematicsVector, AutoDiffInstantiation) {
@@ -146,6 +146,20 @@ GTEST_TEST(FrameKinematicsVector, SymbolicInstantiation) {
   EXPECT_TRUE(x_.EqualTo(poses.value(ids[1]).translation()[0]));
   EXPECT_TRUE(y_.EqualTo(poses.value(ids[1]).translation()[1]));
   EXPECT_TRUE(z_.EqualTo(poses.value(ids[1]).translation()[2]));
+}
+
+GTEST_TEST(FrameKinematicsVector, FrameIdRange) {
+  SourceId source_id = SourceId::get_new_id();
+  int kPoseCount = 3;
+  std::vector<FrameId> ids;
+  for (int i = 0; i < kPoseCount; ++i) ids.push_back(FrameId::get_new_id());
+  FramePoseVector<double> poses(source_id, ids);
+
+  std::set<FrameId> actual_ids;
+  for (FrameId id : poses.frame_ids()) actual_ids.insert(id);
+
+  EXPECT_EQ(ids.size(), actual_ids.size());
+  for (FrameId id : ids) EXPECT_EQ(actual_ids.count(id), 1);
 }
 
 }  // namespace test

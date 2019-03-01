@@ -30,7 +30,7 @@ except ImportError:
 # We specifically load `common` prior to loading any other pydrake modules,
 # in order to get assertion configuration done as early as possible.
 from . import common
-from .util.deprecation import ModuleShim
+from .common.deprecation import ModuleShim
 
 __all__ = ['common', 'getDrakePath']
 common.set_assertion_failure_to_throw_exception()
@@ -39,18 +39,6 @@ common.set_assertion_failure_to_throw_exception()
 def getDrakePath():
     # Compatibility alias.
     return abspath(common.GetDrakePath())
-
-
-def _getattr_handler(name):
-    # Deprecate direct usage of "rbtree" without having imported the module.
-    if name == "rbtree":
-        # N.B. Calling `from . import rbtree` will cause recursion, because
-        # `from x import y` uses `hasattr(x, "y")`, which merely checks if
-        # `getattr(x, "y")` is exception-free.
-        import pydrake.rbtree
-        return pydrake.rbtree
-    else:
-        raise AttributeError()
 
 
 def _execute_extra_python_code(m):
@@ -68,6 +56,3 @@ def _execute_extra_python_code(m):
         with open(filename) as f:
             _code = compile(f.read(), filename, 'exec')
             exec(_code, m.__dict__, m.__dict__)
-
-
-ModuleShim._install(__name__, _getattr_handler)

@@ -31,6 +31,7 @@ drake_cc_library(
         "angle_between_vectors_constraint.cc",
         "gaze_target_constraint.cc",
         "kinematic_constraint_utilities.cc",
+        "minimum_distance_constraint.cc",
         "orientation_constraint.cc",
         "position_constraint.cc",
     ],
@@ -38,14 +39,14 @@ drake_cc_library(
         "angle_between_vectors_constraint.h",
         "gaze_target_constraint.h",
         "kinematic_constraint_utilities.h",
+        "minimum_distance_constraint.h",
         "orientation_constraint.h",
         "position_constraint.h",
     ],
-    visibility = ["//visibility:private"],
     deps = [
         "//math:geometric_transform",
         "//math:gradient",
-        "//multibody/multibody_tree",
+        "//multibody/plant",
         "//solvers:constraint",
     ],
 )
@@ -61,7 +62,7 @@ drake_cc_library(
     visibility = ["//visibility:private"],
     deps = [
         ":kinematic_constraint",
-        "//multibody/multibody_tree/multibody_plant",
+        "//multibody/plant",
         "//solvers:mathematical_program",
     ],
 )
@@ -81,9 +82,9 @@ drake_cc_library(
         "//common/test_utilities:eigen_matrix_compare",
         "//math:gradient",
         "//multibody/benchmarks/kuka_iiwa_robot",
-        "//multibody/multibody_tree",
-        "//multibody/multibody_tree/multibody_plant",
-        "//multibody/multibody_tree/parsing:multibody_plant_sdf_parser",
+        "//multibody/parsing",
+        "//multibody/plant",
+        "//multibody/tree",
         "@gtest//:without_main",
     ],
 )
@@ -101,6 +102,7 @@ drake_cc_googletest(
     deps = [
         ":inverse_kinematics_test_utilities",
         ":kinematic_constraint",
+        "//math:geometric_transform",
     ],
 )
 
@@ -121,6 +123,15 @@ drake_cc_googletest(
 )
 
 drake_cc_googletest(
+    name = "minimum_distance_constraint_test",
+    deps = [
+        ":inverse_kinematics_test_utilities",
+        ":kinematic_constraint",
+        "//common/test_utilities:expect_throws_message",
+    ],
+)
+
+drake_cc_googletest(
     name = "inverse_kinematics_test",
     # TODO(betsymcphail) Ubsan fails for this test. See #9475.
     tags = [
@@ -129,6 +140,8 @@ drake_cc_googletest(
     deps = [
         ":inverse_kinematics_core",
         ":inverse_kinematics_test_utilities",
+        "//math:geometric_transform",
+        "//solvers:solve",
     ],
 )
 

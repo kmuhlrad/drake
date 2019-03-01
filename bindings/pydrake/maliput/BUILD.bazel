@@ -40,7 +40,7 @@ drake_pybind_library(
     name = "api_py",
     cc_deps = [
         "//bindings/pydrake:documentation_pybind",
-        "//bindings/pydrake/util:wrap_pybind",
+        "//bindings/pydrake/common:wrap_pybind",
     ],
     cc_srcs = ["api_py.cc"],
     package_info = PACKAGE_INFO,
@@ -98,5 +98,6 @@ drake_py_unittest(
 )
 
 add_lint_tests(
+    cpplint_data = ["//bindings/pydrake:.clang-format"],
     enable_clang_format_lint = True,
 )

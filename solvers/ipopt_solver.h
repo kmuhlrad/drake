@@ -1,43 +1,68 @@
 #pragma once
 
+#include <ostream>
 #include <string>
 
+#include <Eigen/Core>
+
 #include "drake/common/drake_copyable.h"
-#include "drake/solvers/mathematical_program_solver_interface.h"
+#include "drake/solvers/solver_base.h"
 
 namespace drake {
 namespace solvers {
 
-class IpoptSolver : public MathematicalProgramSolverInterface {
+/**
+ * The Ipopt solver details after calling Solve() function. The user can call
+ * MathematicalProgramResult::get_solver_details<IpoptSolver>() to obtain the
+ * details.
+ */
+struct IpoptSolverDetails {
+  /**
+   * The final status of the solver. Please refer to section 6 in
+   * Introduction to Ipopt: A tutorial for downloading, installing, and using
+   * Ipopt.
+   * You could also find the meaning of the status as Ipopt::SolverReturn
+   * defined in IpAlgTypes.hpp
+   */
+  int status{};
+  /// The final value for the lower bound multiplier.
+  Eigen::VectorXd z_L;
+  /// The final value for the upper bound multiplier.
+  Eigen::VectorXd z_U;
+  /// The final value for the constraint function.
+  Eigen::VectorXd g;
+  /// The final value for the constraint multiplier.
+  Eigen::VectorXd lambda;
+
+  /** Convert status field to string. This function is useful if you want to
+   * interpret the meaning of status.
+   */
+  const char* ConvertStatusToString() const;
+};
+
+class IpoptSolver final : public SolverBase {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(IpoptSolver)
 
-  IpoptSolver() = default;
-  ~IpoptSolver() override = default;
+  /// Type of details stored in MathematicalProgramResult.
+  using Details = IpoptSolverDetails;
 
-  // This solver is implemented in various pieces depending on if
-  // Ipopt was available during compilation.
-  bool available() const override { return is_available(); };
+  IpoptSolver();
+  ~IpoptSolver() final;
 
-  static bool is_available();
-
-  SolutionResult Solve(MathematicalProgram& prog) const override;
-
-  void Solve(const MathematicalProgram&, const optional<Eigen::VectorXd>&,
-             const optional<SolverOptions>&,
-             MathematicalProgramResult*) const override {
-    throw std::runtime_error("Not implemented yet.");
-  }
-
-  SolverId solver_id() const override;
-
-  /// @return same as MathematicalProgramSolverInterface::solver_id()
+  /// @name Static versions of the instance methods with similar names.
+  //@{
   static SolverId id();
+  static bool is_available();
+  static bool ProgramAttributesSatisfied(const MathematicalProgram&);
+  //@}
 
-  bool AreProgramAttributesSatisfied(
-      const MathematicalProgram& prog) const override;
+  // A using-declaration adds these methods into our class's Doxygen.
+  using SolverBase::Solve;
 
-  static bool ProgramAttributesSatisfied(const MathematicalProgram& prog);
+ private:
+  void DoSolve(const MathematicalProgram&, const Eigen::VectorXd&,
+               const SolverOptions&, MathematicalProgramResult*) const final;
 };
 
 }  // namespace solvers

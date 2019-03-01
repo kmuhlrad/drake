@@ -37,9 +37,9 @@ drake_cc_package_library(
         ":is_cloneable",
         ":is_less_than_comparable",
         ":nice_type_name",
-        ":number_traits",
         ":pointer_cast",
         ":polynomial",
+        ":random",
         ":reset_after_move",
         ":reset_on_copy",
         ":scoped_singleton",
@@ -50,6 +50,7 @@ drake_cc_package_library(
         ":temp_directory",
         ":type_safe_index",
         ":unused",
+        ":value",
     ],
 )
 
@@ -69,6 +70,7 @@ drake_cc_library(
         "drake_deprecated.h",
         "drake_optional.h",
         "drake_throw.h",
+        "drake_variant.h",
         "eigen_stl_types.h",
         "eigen_types.h",
         "never_destroyed.h",
@@ -96,7 +98,6 @@ drake_cc_library(
     name = "drake_bool",
     hdrs = [
         "drake_bool.h",
-        "drake_bool_deprecated.h",
     ],
     deps = [
         ":autodiff",
@@ -108,11 +109,6 @@ drake_cc_library(
 drake_cc_library(
     name = "dummy_value",
     hdrs = ["dummy_value.h"],
-)
-
-drake_cc_library(
-    name = "number_traits",
-    hdrs = ["number_traits.h"],
 )
 
 # Drake's specific ScalarType-providing libraries.
@@ -149,6 +145,7 @@ drake_cc_library(
 
 drake_cc_library(
     name = "hash",
+    srcs = ["hash.cc"],
     hdrs = ["hash.h"],
     deps = [
         ":essential",
@@ -183,6 +180,8 @@ drake_cc_library(
     # rest of the header files by adding them in `srcs` section.
     srcs = [
         "symbolic.cc",
+        "symbolic_codegen.cc",
+        "symbolic_codegen.h",
         "symbolic_environment.cc",
         "symbolic_environment.h",
         "symbolic_expression.cc",
@@ -195,6 +194,8 @@ drake_cc_library(
         "symbolic_formula_cell.cc",
         "symbolic_formula_cell.h",
         "symbolic_formula_visitor.h",
+        "symbolic_ldlt.cc",
+        "symbolic_ldlt.h",
         "symbolic_monomial.cc",
         "symbolic_monomial.h",
         "symbolic_monomial_util.cc",
@@ -220,8 +221,8 @@ drake_cc_library(
         ":essential",
         ":extract_double",
         ":hash",
-        ":number_traits",
         ":polynomial",
+        ":random",
         "//math:matrix_util",
     ],
 )
@@ -366,6 +367,11 @@ drake_cc_library(
 )
 
 drake_cc_library(
+    name = "random",
+    hdrs = ["random.h"],
+)
+
+drake_cc_library(
     name = "reset_after_move",
     hdrs = ["reset_after_move.h"],
 )
@@ -472,6 +478,19 @@ drake_cc_library(
     ],
 )
 
+drake_cc_library(
+    name = "value",
+    srcs = ["value.cc"],
+    hdrs = ["value.h"],
+    deps = [
+        ":copyable_unique_ptr",
+        ":essential",
+        ":hash",
+        ":is_cloneable",
+        ":nice_type_name",
+    ],
+)
+
 drake_cc_binary(
     name = "resource_tool",
     srcs = ["resource_tool.cc"],
@@ -560,19 +579,6 @@ drake_cc_googletest(
 
 drake_cc_googletest(
     name = "drake_bool_test",
-    deps = [
-        ":drake_bool",
-        ":symbolic",
-        "//common/test_utilities:symbolic_test_util",
-    ],
-)
-
-drake_cc_googletest(
-    name = "drake_bool_deprecated_test",
-    copts = [
-        # This test for deprecated functions; so we don't want this warning.
-        "-Wno-deprecated-declarations",
-    ],
     deps = [
         ":drake_bool",
         ":symbolic",
@@ -720,6 +726,13 @@ drake_cc_googletest(
 
 drake_cc_googletest(
     name = "drake_throw_test",
+    deps = [
+        ":essential",
+    ],
+)
+
+drake_cc_googletest(
+    name = "drake_variant_test",
     deps = [
         ":essential",
     ],
@@ -877,6 +890,15 @@ drake_cc_googletest(
 )
 
 drake_cc_googletest(
+    name = "symbolic_codegen_test",
+    deps = [
+        ":essential",
+        ":symbolic",
+        "//common/test_utilities:symbolic_test_util",
+    ],
+)
+
+drake_cc_googletest(
     name = "symbolic_decompose_test",
     deps = [
         ":essential",
@@ -956,6 +978,15 @@ drake_cc_googletest(
         ":symbolic",
         "//common/test_utilities:eigen_matrix_compare",
         "//math:geometric_transform",
+    ],
+)
+
+drake_cc_googletest(
+    name = "symbolic_ldlt_test",
+    deps = [
+        ":essential",
+        ":symbolic",
+        "//common/test_utilities:eigen_matrix_compare",
     ],
 )
 
@@ -1161,6 +1192,15 @@ drake_py_unittest(
         "test/resource_tool_test_data.txt",
         ":resource_tool",
         "//examples/pendulum:models",
+    ],
+)
+
+drake_cc_googletest(
+    name = "value_test",
+    deps = [
+        ":value",
+        "//common:essential",
+        "//systems/framework/test_utilities:my_vector",
     ],
 )
 
