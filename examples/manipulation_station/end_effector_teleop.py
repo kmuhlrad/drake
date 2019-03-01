@@ -10,7 +10,8 @@ import numpy as np
 from pydrake.common import FindResourceOrThrow
 from pydrake.common.eigen_geometry import Isometry3, AngleAxis
 from pydrake.examples.manipulation_station import (
-    ManipulationStation, ManipulationStationHardwareInterface, CreateDefaultYcbObjectList)
+    ManipulationStation, ManipulationStationHardwareInterface,
+    CreateDefaultYcbObjectList)
 from pydrake.geometry import ConnectDrakeVisualizer
 from pydrake.multibody.plant import MultibodyPlant
 from pydrake.manipulation.simple_ui import SchunkWsgButtons
@@ -28,6 +29,7 @@ from pydrake.systems.meshcat_visualizer import MeshcatVisualizer
 from pydrake.systems.primitives import FirstOrderLowPassFilter
 
 from robotlocomotion import image_array_t
+
 
 # TODO(russt): Generalize this and move it to pydrake.manipulation.simple_ui.
 class EndEffectorTeleop(LeafSystem):
@@ -295,9 +297,9 @@ else:
     image_to_lcm_image_array = builder.AddSystem(ImageToLcmImageArrayT())
     image_to_lcm_image_array.set_name("converter")
     for name in station.get_camera_names():
-        cam_port = \
+        cam_port = (
             image_to_lcm_image_array.DeclareImageInputPort[PixelType.kRgba8U](
-                "camera_" + name)
+                "camera_" + name))
         builder.Connect(station.GetOutputPort("camera_" + name + "_rgb_image"),
                         cam_port)
 

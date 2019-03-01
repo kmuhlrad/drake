@@ -100,6 +100,10 @@ class TestManipulationStation(unittest.TestCase):
         num_station_bodies = (
             station.get_multibody_plant().num_model_instances())
 
+        ycb_objects = CreateDefaultYcbObjectList()
+        for model_file, X_WObject in ycb_objects:
+            station.AddManipulandFromFile(model_file, X_WObject)
+
         station.Finalize()
 
         context = station.CreateDefaultContext()
@@ -118,6 +122,8 @@ class TestManipulationStation(unittest.TestCase):
         self.assertEqual(v, station.GetWsgVelocity(context))
 
         self.assertEqual(len(station.get_camera_names()), 1)
+        self.assertEqual(station.get_multibody_plant().num_model_instances(),
+                         num_station_bodies + len(ycb_objects))
 
     def test_iiwa_collision_model(self):
         # Check that all of the elements of the enum were spelled correctly.
