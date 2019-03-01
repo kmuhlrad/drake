@@ -2,8 +2,10 @@
 # rationale.
 from pydrake.math import RigidTransform, RollPitchYaw
 
+
 def _xyz_rpy(xyz, rpy):
     return RigidTransform(RollPitchYaw(rpy), xyz)
+
 
 def CreateDefaultYcbObjectList():
     """Creates a list of (model_file, pose) pairs to add six YCB objects to a
