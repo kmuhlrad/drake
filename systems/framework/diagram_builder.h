@@ -54,12 +54,20 @@ class DiagramBuilder {
   /// @tparam S The type of system to add.
   template<class S>
   S* AddSystem(std::unique_ptr<S> system) {
+    std::cout << "adding system" << std::endl;
     if (system->get_name().empty()) {
+      std::cout << "getting new name" << std::endl;
+      system->GetMemoryObjectName();
+      std::cout << "confirmed can get a name" << std::endl;
       system->set_name(system->GetMemoryObjectName());
+      std::cout << "set name" << std::endl;
     }
     S* raw_sys_ptr = system.get();
+    std::cout << "made raw ptr" << std::endl;
     systems_.insert(raw_sys_ptr);
+    std::cout << "inserted raw ptr" << std::endl;
     registered_systems_.push_back(std::move(system));
+    std::cout << "registered system" << std::endl;
     return raw_sys_ptr;
   }
 
