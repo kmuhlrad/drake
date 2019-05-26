@@ -103,6 +103,31 @@ INSTANTIATE_TEST_CASE_P(
     MosekTest, TestFindSpringEquilibrium,
     ::testing::ValuesIn(GetFindSpringEquilibriumProblems()));
 
+GTEST_TEST(TestSOCP, MaximizeGeometricMeanTrivialProblem1) {
+  MaximizeGeometricMeanTrivialProblem1 prob;
+  MosekSolver solver;
+  if (solver.available()) {
+    const auto result = solver.Solve(prob.prog(), {}, {});
+    prob.CheckSolution(result, 1E-7);
+  }
+}
+
+GTEST_TEST(TestSOCP, MaximizeGeometricMeanTrivialProblem2) {
+  MaximizeGeometricMeanTrivialProblem2 prob;
+  MosekSolver solver;
+  if (solver.available()) {
+    const auto result = solver.Solve(prob.prog(), {}, {});
+    prob.CheckSolution(result, 1E-7);
+  }
+}
+
+GTEST_TEST(TestSOCP, SmallestEllipsoidCoveringProblem) {
+  MosekSolver solver;
+  // Mosek 8 returns a solution that is accurate up to 1.2E-5 for this specific
+  // problem. Might need to change the tolerance when we upgrade Mosek.
+  SolveAndCheckSmallestEllipsoidCoveringProblems(solver, 1.2E-5);
+}
+
 GTEST_TEST(TestSemidefiniteProgram, TrivialSDP) {
   MosekSolver mosek_solver;
   if (mosek_solver.available()) {
@@ -128,6 +153,27 @@ GTEST_TEST(TestSemidefiniteProgram, EigenvalueProblem) {
   MosekSolver mosek_solver;
   if (mosek_solver.available()) {
     SolveEigenvalueProblem(mosek_solver, 1E-7);
+  }
+}
+
+GTEST_TEST(TestSemidefiniteProgram, SolveSDPwithSecondOrderConeExample1) {
+  MosekSolver mosek_solver;
+  if (mosek_solver.available()) {
+    SolveSDPwithSecondOrderConeExample1(mosek_solver, 1E-7);
+  }
+}
+
+GTEST_TEST(TestSemidefiniteProgram, SolveSDPwithSecondOrderConeExample2) {
+  MosekSolver mosek_solver;
+  if (mosek_solver.available()) {
+    SolveSDPwithSecondOrderConeExample2(mosek_solver, 1E-7);
+  }
+}
+
+GTEST_TEST(TestSemidefiniteProgram, SolveSDPwithOverlappingVariables) {
+  MosekSolver mosek_solver;
+  if (mosek_solver.available()) {
+    SolveSDPwithOverlappingVariables(mosek_solver, 1E-7);
   }
 }
 

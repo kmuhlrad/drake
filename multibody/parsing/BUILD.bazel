@@ -104,7 +104,7 @@ drake_cc_library(
     deps = [
         ":detail_misc",
         ":package_map",
-        "//geometry:geometry_visualization",
+        "//geometry:geometry_roles",
         "//geometry:scene_graph",
         "//multibody/plant:coulomb_friction",
         "@sdformat",
@@ -250,6 +250,7 @@ drake_cc_googletest(
         ":detail_sdf_parser",
         "//common:find_resource",
         "//common/test_utilities",
+        "@spruce",
     ],
 )
 
@@ -267,6 +268,7 @@ drake_cc_googletest(
         "//common/test_utilities",
         "//multibody/benchmarks/acrobot",
         "//multibody/benchmarks/acrobot:make_acrobot_plant",
+        "@spruce",
     ],
 )
 
