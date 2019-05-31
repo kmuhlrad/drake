@@ -40,6 +40,13 @@ drake_py_library(
     ],
 )
 
+filegroup(
+    name = "models",
+    srcs = glob([
+        "test/models/*.npy",
+    ]),
+)
+
 drake_cc_library(
     name = "systems_pybind",
     hdrs = ["systems_pybind.h"],
@@ -285,6 +292,8 @@ drake_py_library(
         ":module_py",
         "//bindings/pydrake:math_py",
         "//bindings/pydrake:perception_py",
+        "//bindings/pydrake/systems:rendering_py",
+        "//bindings/pydrake/third_party:iterative_closest_point_py",
     ],
 )
 
@@ -322,8 +331,8 @@ drake_py_library(
 
 install(
     name = "install",
-    targets = PY_LIBRARIES + [":all_py"],
     py_dest = PACKAGE_INFO.py_dest,
+    targets = PY_LIBRARIES + [":all_py"],
     deps = get_drake_py_installs(PY_LIBRARIES_WITH_INSTALL),
 )
 
@@ -439,6 +448,7 @@ drake_py_unittest(
 
 drake_py_unittest(
     name = "perception_test",
+    data = [":models"],
     deps = [
         ":analysis_py",
         ":framework_py",

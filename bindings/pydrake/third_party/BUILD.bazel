@@ -4,6 +4,7 @@ load("@drake//tools/install:install.bzl", "install")
 load(
     "@drake//tools/skylark:drake_py.bzl",
     "drake_py_library",
+    "drake_py_unittest",
 )
 load(
     "@drake//tools/skylark:pybind.bzl",
@@ -59,6 +60,7 @@ drake_py_library(
 PY_LIBRARIES = [
     ":module_py",
     ":wrapt_py",
+    ":iterative_closest_point_py",
 ]
 
 drake_py_library(
@@ -69,10 +71,24 @@ drake_py_library(
 
 install(
     name = "install",
-    targets = PY_LIBRARIES,
-    py_dest = PACKAGE_INFO.py_dest,
-    docs = ["wrapt/LICENSE"],
     doc_dest = "share/doc",
+    docs = ["wrapt/LICENSE"],
+    py_dest = PACKAGE_INFO.py_dest,
+    targets = PY_LIBRARIES,
+)
+
+drake_py_library(
+    name = "iterative_closest_point_py",
+    srcs = ["iterative_closest_point.py"],
+    imports = PACKAGE_INFO.py_imports,
+)
+
+drake_py_unittest(
+    name = "iterative_closest_point_test",
+    deps = [
+        ":iterative_closest_point_py",
+        "//bindings/pydrake:math_py",
+    ],
 )
 
 add_lint_tests_pydrake()

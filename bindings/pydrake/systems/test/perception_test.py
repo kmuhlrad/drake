@@ -7,8 +7,9 @@ from pydrake.math import RigidTransform, RollPitchYaw, RotationMatrix
 from pydrake.systems.analysis import Simulator
 from pydrake.systems.framework import AbstractValue, DiagramBuilder
 from pydrake.systems.perception import (
-    PointCloudConcatenation, _ConcatenatePointClouds, _TileColors,
-    _TransformPoints)
+    ObjectInfo, PointCloudConcatenation, PoseRefinement,
+    _ConcatenatePointClouds, _TileColors, _TransformPoints)
+from pydrake.systems.rendering import PoseBundle
 
 import pydrake.perception as mut
 
@@ -207,3 +208,132 @@ class TestPointCloudConcatenation(unittest.TestCase):
 
         self.assertTrue(
             (rgb_first and no_rgb_last) or (no_rgb_first and rgb_last))
+
+
+class TestPoseRefinement(unittest.TestCase):
+    def setUp(self):
+        # Create the input pose bundle of the ground truth poses.
+        self.X_WMustard_expected = RigidTransform(
+            RollPitchYaw([-1.57, 0, 3.3]), [0.44, -0.16, 0.09])
+        self.X_WSoup_expected = RigidTransform(
+            RollPitchYaw([-1.57, 0, 3.14]), [0.40, -0.07, 0.03])
+
+        initial_pose_bundle = PoseBundle(num_poses=2)
+        initial_pose_bundle.set_name(0, "mustard")
+        initial_pose_bundle.set_pose(0, self.X_WMustard_expected)
+        initial_pose_bundle.set_name(1, "soup")
+        initial_pose_bundle.set_pose(1, self.X_WSoup_expected)
+
+        # Construct the scene point cloud from saved arrays.
+        # TODO(kmuhlrad): figure out file paths
+        scene_points = np.load("scene_points.npy")
+        scene_colors = np.load("scene_points.npy")
+
+        self.scene_point_cloud = mut.PointCloud(
+            fields=mut.Fields(mut.BaseField.kXYZs | mut.BaseField.kRGBs))
+        self.scene_point_cloud.mutable_xyzs()[:] = scene_points.T
+        self.scene_point_cloud.mutable_rgbs()[:] = scene_colors.T
+
+        # Construct two PoseRefinement Systems: One with the default
+        # segmentation and alignment functions, and one with custom
+        # segmentation and alignment functions.
+        builder = DiagramBuilder()
+
+        self.default_pose_refinement = builder.AddSystem(
+            PoseRefinement(self.construct_default_object_info_dict()))
+        self.custom_pose_refinement = builder.AddSystem(
+            PoseRefinement(self.construct_custom_object_info_dict()))
+
+        diagram = builder.Build()
+        simulator = Simulator(diagram)
+
+        self.default_context = diagram.GetMutableSubsystemContext(
+            self.default_pose_refinement, simulator.get_mutable_context())
+        self.custom_context = diagram.GetMutableSubsystemContext(
+            self.custom_pose_refinement, simulator.get_mutable_context())
+
+        self.default_context.FixInputPort(
+            self.default_pose_refinement.GetInputPort(
+                "pose_bundle_W").get_index(),
+            AbstractValue.Make(initial_pose_bundle)
+        )
+        self.custom_context.FixInputPort(
+            self.custom_pose_refinement.GetInputPort(
+                "pose_bundle_W").get_index(),
+            AbstractValue.Make(initial_pose_bundle)
+        )
+
+        self.default_context.FixInputPort(
+            self.default_pose_refinement.GetInputPort(
+                "point_cloud_W").get_index(),
+            AbstractValue.Make(self.scene_point_cloud)
+        )
+        self.custom_context.FixInputPort(
+            self.custom_pose_refinement.GetInputPort(
+                "point_cloud_W").get_index(),
+            AbstractValue.Make(self.scene_point_cloud)
+        )
+
+    def construct_default_object_info_dict(self):
+        mustard_info = ObjectInfo(
+            "mustard", "models/006_mustard_bottle_textured.npy")
+        soup_info = ObjectInfo(
+            "soup", "models/005_tomato_soup_can_textured.npy")
+
+        object_info_dict = {
+            "mustard": mustard_info,
+            "soup": soup_info,
+        }
+
+        return object_info_dict
+
+    def construct_custom_object_info_dict(self):
+        mustard_info = ObjectInfo(
+            "mustard", "models/006_mustard_bottle_textured.npy",
+            segment_scene_function=self.full_scene_segmentation_function,
+            alignment_function=self.identity_alignment_function)
+        soup_info = ObjectInfo(
+            "soup", "models/005_tomato_soup_can_textured.npy",
+            segment_scene_function=self.empty_segmentation_function)
+
+        object_info_dict = {
+            "mustard": mustard_info,
+            "soup": soup_info,
+        }
+
+        return object_info_dict
+
+    def full_scene_segmentation_function(self, scene_points, scene_colors,
+                                         model, init_pose):
+        return scene_points, scene_colors
+
+    def empty_segmentation_function(self, scene_points, scene_colors,
+                                    model, init_pose):
+        return np.array([]), np.array([])
+
+    def identity_alignment_function(self, segmented_scene_points,
+                                    segmented_scene_colors, model, init_pose):
+        return np.eye(4)
+
+    def test_default_system(self):
+        # Evaluate outputs.
+        mustard_pc = self.default_pose_refinement.GetOutputPort(
+            "segmented_point_cloud_W_mustard").Eval(self.default_context)
+        soup_pc = self.default_pose_refinement.GetOutputPort(
+            "segmented_point_cloud_W_soup").Eval(self.default_context)
+        refined_pose_bundle = self.default_pose_refinement.GetOutputPort(
+            "refined_pose_bundle_W").Eval(self.default_context)
+
+        # Check that the refined poses are the ground truth.
+        for i in range(refined_pose_bundle.num_poses()):
+            X_WObject_actual = refined_pose_bundle.get_pose(i)
+            if refined_pose_bundle.get_name(i) == "mustard":
+                self.assertTrue(
+                    np.allclose(X_WObject_actual, self.X_WMustard_expected))
+            elif refined_pose_bundle.get_name(i) == "soup":
+                self.assertTrue(
+                    np.allclose(X_WObject_actual, self.X_WSoup_expected))
+
+        # Check that the segmented point clouds are smaller than the scene.
+        self.assertLess(len(mustard_pc.xyzs()), len(self.scene_point_cloud.xyzs()))
+        self.assertLess(len(soup_pc.xyzs()), len(self.scene_point_cloud.xyzs()))
