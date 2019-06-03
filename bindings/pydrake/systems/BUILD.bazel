@@ -43,7 +43,7 @@ drake_py_library(
 filegroup(
     name = "models",
     srcs = glob([
-        "test/models/*.npy",
+        "test/*.npy",
     ]),
 )
 

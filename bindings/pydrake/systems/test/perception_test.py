@@ -3,6 +3,7 @@
 import unittest
 import numpy as np
 
+from pydrake.common import FindResourceOrThrow
 from pydrake.math import RigidTransform, RollPitchYaw, RotationMatrix
 from pydrake.systems.analysis import Simulator
 from pydrake.systems.framework import AbstractValue, DiagramBuilder
@@ -225,14 +226,18 @@ class TestPoseRefinement(unittest.TestCase):
         initial_pose_bundle.set_pose(1, self.X_WSoup_expected)
 
         # Construct the scene point cloud from saved arrays.
+        self.test_models_path = "drake/bindings/pydrake/systems/test/"
         # TODO(kmuhlrad): figure out file paths
-        scene_points = np.load("scene_points.npy")
-        scene_colors = np.load("scene_points.npy")
+        scene_points = np.load(FindResourceOrThrow(
+            self.test_models_path + "scene_points.npy"))
+        scene_colors = np.load(FindResourceOrThrow(
+            self.test_models_path + "scene_colors.npy"))
 
         self.scene_point_cloud = mut.PointCloud(
             fields=mut.Fields(mut.BaseField.kXYZs | mut.BaseField.kRGBs))
-        self.scene_point_cloud.mutable_xyzs()[:] = scene_points.T
-        self.scene_point_cloud.mutable_rgbs()[:] = scene_colors.T
+        self.scene_point_cloud.resize(scene_points.shape[1])
+        self.scene_point_cloud.mutable_xyzs()[:] = scene_points
+        # self.scene_point_cloud.mutable_rgbs()[:] = scene_colors
 
         # Construct two PoseRefinement Systems: One with the default
         # segmentation and alignment functions, and one with custom
@@ -276,9 +281,13 @@ class TestPoseRefinement(unittest.TestCase):
 
     def construct_default_object_info_dict(self):
         mustard_info = ObjectInfo(
-            "mustard", "models/006_mustard_bottle_textured.npy")
+            "mustard",
+            FindResourceOrThrow(
+                self.test_models_path + "006_mustard_bottle_textured.npy"))
         soup_info = ObjectInfo(
-            "soup", "models/005_tomato_soup_can_textured.npy")
+            "soup",
+            FindResourceOrThrow(
+                self.test_models_path + "005_tomato_soup_can_textured.npy"))
 
         object_info_dict = {
             "mustard": mustard_info,
@@ -289,11 +298,15 @@ class TestPoseRefinement(unittest.TestCase):
 
     def construct_custom_object_info_dict(self):
         mustard_info = ObjectInfo(
-            "mustard", "models/006_mustard_bottle_textured.npy",
+            "mustard",
+            FindResourceOrThrow(
+                self.test_models_path + "006_mustard_bottle_textured.npy"),
             segment_scene_function=self.full_scene_segmentation_function,
             alignment_function=self.identity_alignment_function)
         soup_info = ObjectInfo(
-            "soup", "models/005_tomato_soup_can_textured.npy",
+            "soup",
+            FindResourceOrThrow(
+                self.test_models_path + "005_tomato_soup_can_textured.npy"),
             segment_scene_function=self.empty_segmentation_function)
 
         object_info_dict = {
